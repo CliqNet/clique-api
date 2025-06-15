@@ -1,0 +1,492 @@
+// File: schema.prisma
+
+generator client {
+  provider = "prisma-client-py"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Management Models
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  username    String   @unique
+  password    String
+  firstName   String
+  lastName    String
+  avatar      String?
+  userType    UserType
+  isActive    Boolean  @default(true)
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastLoginAt DateTime?
+
+  // Relationships
+  creator CreatorProfile?
+  company CompanyProfile?
+  admin   AdminProfile?
+
+  // Activity tracking
+  sessions       UserSession[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+}
+
+// Creator Profile and Related Models
+model CreatorProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  bio         String?
+  niche       String[]
+  totalFollowers Int   @default(0)
+  avgEngagement  Float @default(0.0)
+  isVerified     Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  user              User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccounts    SocialAccount[]
+  posts             Post[]
+  campaigns         CampaignCreator[]
+  connections       CreatorConnection[] @relation("ConnectedCreator")
+  connectionRequests CreatorConnection[] @relation("RequestingCreator")
+  analytics         CreatorAnalytics[]
+  collaborations    Collaboration[]
+
+  @@map("creator_profiles")
+}
+
+model SocialAccount {
+  id          String        @id @default(cuid())
+  creatorId   String
+  platform    SocialPlatform
+  platformId  String        // Platform-specific user ID
+  username    String
+  accessToken String
+  refreshToken String?
+  expiresAt   DateTime?
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relationships
+  creator     CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  posts       PostPlatform[]
+  analytics   SocialAnalytics[]
+
+  @@unique([creatorId, platform])
+  @@map("social_accounts")
+}
+
+model CreatorConnection {
+  id          String               @id @default(cuid())
+  requesterId String
+  creatorId   String
+  status      ConnectionStatus     @default(PENDING)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  requester   CreatorProfile @relation("RequestingCreator", fields: [requesterId], references: [id], onDelete: Cascade)
+  creator     CreatorProfile @relation("ConnectedCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, creatorId])
+  @@map("creator_connections")
+}
+
+// Company Profile and Related Models
+model CompanyProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  companyName String
+  industry    String
+  website     String?
+  description String?
+  logo        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns   Campaign[]
+  folders     Folder[]
+  collaborations Collaboration[]
+
+  @@map("company_profiles")
+}
+
+// Admin Profile
+model AdminProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  role      AdminRole @default(MODERATOR)
+  permissions String[] // JSON array of permissions
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_profiles")
+}
+
+// Content Management Models
+model Post {
+  id          String      @id @default(cuid())
+  creatorId   String
+  content     String
+  mediaUrls   String[]    // Array of media URLs
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  status      PostStatus  @default(DRAFT)
+  postType    PostType    @default(REGULAR)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relationships
+  creator     CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  platforms   PostPlatform[]
+  analytics   PostAnalytics[]
+  campaign    CampaignContent?
+
+  @@map("posts")
+}
+
+model PostPlatform {
+  id              String         @id @default(cuid())
+  postId          String
+  socialAccountId String
+  platformPostId  String?        // Platform-specific post ID after publishing
+  status          PostStatus     @default(SCHEDULED)
+  publishedAt     DateTime?
+  errorMessage    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relationships
+  post          Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, socialAccountId])
+  @@map("post_platforms")
+}
+
+// Campaign Management Models
+model Campaign {
+  id          String         @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+  budget      Float
+  startDate   DateTime
+  endDate     DateTime
+  status      CampaignStatus @default(DRAFT)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  // Relationships
+  company     CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creators    CampaignCreator[]
+  content     CampaignContent[]
+  analytics   CampaignAnalytics[]
+  folder      Folder?         @relation(fields: [folderId], references: [id])
+  folderId    String?
+
+  @@map("campaigns")
+}
+
+model CampaignCreator {
+  id         String   @id @default(cuid())
+  campaignId String
+  creatorId  String
+  fee        Float
+  status     CampaignCreatorStatus @default(INVITED)
+  invitedAt  DateTime @default(now())
+  acceptedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relationships
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  creator  CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, creatorId])
+  @@map("campaign_creators")
+}
+
+model CampaignContent {
+  id         String   @id @default(cuid())
+  campaignId String
+  postId     String   @unique
+  createdAt  DateTime @default(now())
+
+  // Relationships
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  post     Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_content")
+}
+
+// Folder Structure for Companies
+model Folder {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+  parentId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  company    CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent     Folder? @relation("FolderHierarchy", fields: [parentId], references: [id])
+  children   Folder[] @relation("FolderHierarchy")
+  campaigns  Campaign[]
+
+  @@map("folders")
+}
+
+// Collaboration System
+model Collaboration {
+  id        String             @id @default(cuid())
+  creatorId String
+  companyId String
+  type      CollaborationType
+  status    CollaborationStatus @default(PENDING)
+  details   Json?              // Flexible JSON field for collaboration details
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  // Relationships
+  creator CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  company CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  messages CollaborationMessage[]
+
+  @@map("collaborations")
+}
+
+model CollaborationMessage {
+  id              String   @id @default(cuid())
+  collaborationId String
+  senderId        String
+  message         String
+  createdAt       DateTime @default(now())
+
+  // Relationships
+  collaboration Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+
+  @@map("collaboration_messages")
+}
+
+// Analytics Models
+model CreatorAnalytics {
+  id           String   @id @default(cuid())
+  creatorId    String
+  date         DateTime
+  followers    Int
+  engagement   Float
+  reach        Int
+  impressions  Int
+  profileViews Int
+  createdAt    DateTime @default(now())
+
+  // Relationships
+  creator CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([creatorId, date])
+  @@map("creator_analytics")
+}
+
+model SocialAnalytics {
+  id              String   @id @default(cuid())
+  socialAccountId String
+  date            DateTime
+  followers       Int
+  engagement      Float
+  reach           Int
+  impressions     Int
+  createdAt       DateTime @default(now())
+
+  // Relationships
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([socialAccountId, date])
+  @@map("social_analytics")
+}
+
+model PostAnalytics {
+  id          String   @id @default(cuid())
+  postId      String
+  platform    SocialPlatform
+  likes       Int      @default(0)
+  comments    Int      @default(0)
+  shares      Int      @default(0)
+  views       Int      @default(0)
+  reach       Int      @default(0)
+  impressions Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, platform])
+  @@map("post_analytics")
+}
+
+model CampaignAnalytics {
+  id         String   @id @default(cuid())
+  campaignId String
+  date       DateTime
+  reach      Int
+  impressions Int
+  engagement Float
+  clicks     Int
+  conversions Int
+  spend      Float
+  createdAt  DateTime @default(now())
+
+  // Relationships
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, date])
+  @@map("campaign_analytics")
+}
+
+// Notification System
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?            // Additional data for the notification
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// Audit Log
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  resource  String
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("audit_logs")
+}
+
+// Enums
+enum UserType {
+  CREATOR
+  COMPANY
+  ADMIN
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  MODERATOR
+}
+
+enum SocialPlatform {
+  INSTAGRAM
+  FACEBOOK
+  YOUTUBE
+  TWITTER
+  TIKTOK
+  LINKEDIN
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum PostType {
+  REGULAR
+  STORY
+  REEL
+  VIDEO
+  CAROUSEL
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum CampaignCreatorStatus {
+  INVITED
+  ACCEPTED
+  DECLINED
+  COMPLETED
+}
+
+enum ConnectionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum CollaborationType {
+  SPONSORED_POST
+  PRODUCT_REVIEW
+  BRAND_PARTNERSHIP
+  AFFILIATE
+  GIVEAWAY
+}
+
+enum CollaborationStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  CAMPAIGN_INVITE
+  CONNECTION_REQUEST
+  POST_PUBLISHED
+  ANALYTICS_REPORT
+  SYSTEM_UPDATE
+  PAYMENT_RECEIVED
+}

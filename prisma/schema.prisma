@@ -1,0 +1,116 @@
+// File: schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-py"
+  recursive_type_depth = 5
+}
+
+// User Management Models
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  username    String   @unique
+  password    String
+  firstName   String
+  lastName    String
+  avatar      String?
+  userType    UserType
+  isActive    Boolean  @default(true)
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastLoginAt DateTime?
+
+  // Relationships
+  creator CreatorProfile?
+  company CompanyProfile?
+  admin   AdminProfile?
+
+  // Activity tracking
+  sessions       UserSession[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+}
+
+// Creator Profile and Related Models
+model CreatorProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  bio         String?
+  niche       String[]
+  totalFollowers Int   @default(0)
+  avgEngagement  Float @default(0.0)
+  isVerified     Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  user              User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("creator_profiles")
+}
+
+
+// Company Profile and Related Models
+model CompanyProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  companyName String
+  industry    String
+  website     String?
+  description String?
+  logo        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("company_profiles")
+}
+
+// Admin Profile
+model AdminProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  role      AdminRole @default(MODERATOR)
+  permissions String[] // JSON array of permissions
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_profiles")
+}
+
+// Enums
+enum UserType {
+  CREATOR
+  COMPANY
+  ADMIN
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  MODERATOR
+}

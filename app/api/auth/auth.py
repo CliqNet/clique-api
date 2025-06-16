@@ -199,6 +199,7 @@ def format_user_response(user):
             "totalFollowers": user.creator.totalFollowers,
             "avgEngagement": user.creator.avgEngagement,
             "isVerified": user.creator.isVerified,
+            "plan": user.creator.plan
         }
     elif user.userType == UserType.COMPANY and user.company:
         profile_data = {
@@ -207,6 +208,7 @@ def format_user_response(user):
             "industry": user.company.industry,
             "website": user.company.website,
             "description": user.company.description,
+            "plan": user.company.plan
         }
     elif user.userType == UserType.ADMIN and user.admin:
         profile_data = {

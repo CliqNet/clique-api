@@ -84,7 +84,7 @@ model CompanyProfile {
   id          String   @id @default(cuid())
   userId      String   @unique
   companyName String
-  plan      PlanType   @default(BASIC)
+  plan        PlanType @default(BASIC)
   industry    String
   website     String?
   description String?

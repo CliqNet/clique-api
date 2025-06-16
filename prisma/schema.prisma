@@ -63,6 +63,7 @@ model UserSession {
 model CreatorProfile {
   id          String   @id @default(cuid())
   userId      String   @unique
+  plan        PlanType @default(FREE)
   bio         String?
   niche       String[]
   totalFollowers Int   @default(0)
@@ -83,6 +84,7 @@ model CompanyProfile {
   id          String   @id @default(cuid())
   userId      String   @unique
   companyName String
+  plan      PlanType   @default(BASIC)
   industry    String
   website     String?
   description String?
@@ -168,4 +170,10 @@ enum AdminRole {
   SUPER_ADMIN
   ADMIN
   MODERATOR
+}
+
+enum PlanType {
+  FREE
+  BASIC
+  PRO
 }

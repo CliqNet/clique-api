@@ -182,7 +182,7 @@ async def create_admin_users():
     """Create initial admin users"""
     admin_users = [
         {
-            "email": "superadmin@yourapp.com",
+            "email": "superadmin@clique.com",
             "username": "superadmin",
             "password": "SuperAdmin123!",
             "firstName": "Super",
@@ -194,7 +194,7 @@ async def create_admin_users():
             "admin_role": AdminRole.SUPER_ADMIN
         },
         {
-            "email": "admin@yourapp.com",
+            "email": "admin@clique.com",
             "username": "admin",
             "password": "Admin123!",
             "firstName": "System",
@@ -206,7 +206,7 @@ async def create_admin_users():
             "admin_role": AdminRole.ADMIN
         },
         {
-            "email": "moderator@yourapp.com",
+            "email": "moderator@clique.com",
             "username": "moderator",
             "password": "Moderator123!",
             "firstName": "Content",

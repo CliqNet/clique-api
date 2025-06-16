@@ -12,41 +12,49 @@ generator client {
 
 // User Management Models
 model User {
-  id          String   @id @default(cuid())
-  email       String   @unique
-  username    String   @unique
-  password    String
-  firstName   String
-  lastName    String
-  avatar      String?
-  userType    UserType
-  isActive    Boolean  @default(true)
-  isVerified  Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  lastLoginAt DateTime?
+  id                      String   @id @default(cuid())
+  email                   String   @unique
+  username                String   @unique
+  password                String
+  firstName               String
+  lastName                String
+  avatar                  String?
+  userType                UserType
+  isActive                Boolean  @default(true)
+  isVerified              Boolean  @default(false)
+  emailVerifiedAt         DateTime?
+  passwordResetToken      String?
+  passwordResetExpiresAt  DateTime?
+  twoFactorEnabled        Boolean @default(false)
+  twoFactorSecret         String?
+  status                  AccountStatus @default(PENDING_VERIFICATION)
+  createdAt               DateTime @default(now())
+  deletedAt               DateTime?
+  updatedAt               DateTime @updatedAt
+  lastLoginAt             DateTime?
 
   // Relationships
-  creator CreatorProfile?
-  company CompanyProfile?
-  admin   AdminProfile?
+  creator                 CreatorProfile?
+  company                 CompanyProfile?
+  admin                   AdminProfile?
+  roles                   UserRole[]
 
   // Activity tracking
-  sessions       UserSession[]
+  sessions                UserSession[]
 
   @@map("users")
 }
 
 model UserSession {
-  id        String   @id @default(cuid())
-  userId    String
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  ipAddress String?
-  userAgent String?
+  id                      String   @id @default(cuid())
+  userId                  String
+  token                   String   @unique
+  expiresAt               DateTime
+  createdAt               DateTime @default(now())
+  ipAddress               String?
+  userAgent               String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                    User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_sessions")
 }
@@ -93,7 +101,6 @@ model AdminProfile {
   id        String   @id @default(cuid())
   userId    String   @unique
   role      AdminRole @default(MODERATOR)
-  permissions String[] // JSON array of permissions
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -102,7 +109,55 @@ model AdminProfile {
   @@map("admin_profiles")
 }
 
+model Role {
+  id          String @id @default(cuid())
+  name        String @unique
+  description String?
+  permissions RolePermission[]
+  users       UserRole[]
+  
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  name        String @unique
+  resource    String // e.g., "campaign", "creator", "analytics"
+  action      String // e.g., "create", "read", "update", "delete"
+  roles       RolePermission[]
+  
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+  
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id])
+  role   Role @relation(fields: [roleId], references: [id])
+  
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
 // Enums
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+  DEACTIVATED
+}
+
+
 enum UserType {
   CREATOR
   COMPANY

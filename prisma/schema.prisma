@@ -10,7 +10,21 @@ generator client {
   recursive_type_depth = 5
 }
 
-// User Management Models
+model UserSession {
+  id                      String   @id @default(cuid())
+  userId                  String
+  token                   String   @unique
+  expiresAt               DateTime
+  createdAt               DateTime @default(now())
+  ipAddress               String?
+  userAgent               String?
+
+  user                    User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+}
+
+// User
 model User {
   id                      String   @id @default(cuid())
   email                   String   @unique
@@ -45,20 +59,6 @@ model User {
   @@map("users")
 }
 
-model UserSession {
-  id                      String   @id @default(cuid())
-  userId                  String
-  token                   String   @unique
-  expiresAt               DateTime
-  createdAt               DateTime @default(now())
-  ipAddress               String?
-  userAgent               String?
-
-  user                    User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("user_sessions")
-}
-
 // Creator Profile and Related Models
 model CreatorProfile {
   id          String   @id @default(cuid())
@@ -79,7 +79,7 @@ model CreatorProfile {
 }
 
 
-// Company Profile and Related Models
+// Company Profile
 model CompanyProfile {
   id          String   @id @default(cuid())
   userId      String   @unique

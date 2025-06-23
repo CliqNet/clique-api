@@ -2,12 +2,13 @@
 """
 Seed script for populating the database with initial data
 """
-
+import os
 import asyncio
 import bcrypt
 from datetime import datetime, timezone
 from prisma import Prisma
-from prisma.enums import UserType, AdminRole, AccountStatus
+from prisma.enums import UserType, AdminRole, AccountStatus, SocialPlatform
+
 
 # Initialize Prisma client
 prisma = Prisma()
@@ -466,30 +467,103 @@ async def create_sample_companies():
     print(f"Created {len(created_companies)} sample companies")
     return created_companies
 
+async def create_platform_configs():
+    """Seed supported social platform configurations"""
+    platform_configs = [
+        {
+            "platform": SocialPlatform.FACEBOOK,
+            "appId": os.environ.get("FACEBOOK_APP_ID", "YOUR_FACEBOOK_APP_ID_NOT_SET"),
+            "appSecret": os.environ.get("FACEBOOK_APP_SECRET", "YOUR_FACEBOOK_APP_SECRET_NOT_SET"),
+            "apiVersion": "v18.0",
+            "rateLimitPerHour": 200,
+            "rateLimitPerDay": 5000,
+            "isActive": True
+        },
+        # {
+        #     "platform": SocialPlatform.INSTAGRAM,
+        #     "appId": os.environ.get("INSTAGRAM_APP_ID", "YOUR_INSTAGRAM_APP_ID_NOT_SET"),
+        #     "appSecret": os.environ.get("INSTAGRAM_APP_SECRET", "YOUR_INSTAGRAM_APP_SECRET_NOT_SET"),
+        #     "apiVersion": "17.0",
+        #     "rateLimitPerHour": 200,
+        #     "rateLimitPerDay": 5000,
+        # },
+        # {
+        #     "platform": SocialPlatform.TWITTER,
+        #     "appId": os.environ.get("TWITTER_APP_ID", "YOUR_TWITTER_APP_ID_NOT_SET"),
+        #     "appSecret": os.environ.get("TWITTER_APP_SECRET", "YOUR_TWITTER_APP_SECRET_NOT_SET"),
+        #     "apiVersion": "2",
+        #     "rateLimitPerHour": 300,
+        #     "rateLimitPerDay": 10000,
+        # },
+        # {
+        #     "platform": SocialPlatform.YOUTUBE,
+        #      "appId": os.environ.get("YOUTUBE_APP_ID", "YOUR_YOUTUBE_APP_ID_NOT_SET"),
+        #     "appSecret": os.environ.get("YOUTUBE_APP_SECRET", "YOUR_YOUTUBE_APP_SECRET_NOT_SET"),
+        #     "apiVersion": "v3",
+        #     "rateLimitPerHour": 18000,
+        #     "rateLimitPerDay": 180000,
+        # },
+        # {
+        #     "platform": SocialPlatform.LINKEDIN,
+        #     "appId": os.environ.get("LINKEDIN_APP_ID", "YOUR_LINKEDIN_APP_ID_NOT_SET"),
+        #     "appSecret": os.environ.get("LINKEDIN_APP_SECRET", "YOUR_LINKEDIN_APP_SECRET_NOT_SET"),
+        #     "apiVersion": "2.0",
+        #     "rateLimitPerHour": 500,
+        #     "rateLimitPerDay": 5000,
+        # },
+        # {
+        #     "platform": SocialPlatform.TIKTOK,
+        #     "appId": os.environ.get("TIKTOK_APP_ID", "YOUR_TIKTOK_APP_ID_NOT_SET"),
+        #     "appSecret": os.environ.get("TIKTOK_APP_SECRET", "YOUR_TIKTOK_APP_SECRET_NOT_SET"),
+        #     "apiVersion": "v1",
+        #     "rateLimitPerHour": 300,
+        #     "rateLimitPerDay": 10000,
+        # },
+    ]
+
+    print("Creating platform configs...")
+    created_configs = []
+    for config in platform_configs:
+        config_entry = await prisma.platformconfig.upsert(
+            where={"platform": config["platform"]},
+            data={
+                "create": config,
+                "update": config
+            }
+        )
+        created_configs.append(config_entry)
+
+    print(f"Created {len(created_configs)} platform configs")
+    return created_configs
+
+
 async def main():
     """Main seed function"""
     try:
         await prisma.connect()
         print("Connected to database")
         
-        # Create permissions first
-        await create_permissions()
+        # # Create permissions first
+        # await create_permissions()
         
-        # Create roles (depends on permissions)
-        await create_roles()
+        # # Create roles (depends on permissions)
+        # await create_roles()
+
+        # Create socials config
+        await create_platform_configs()
         
         # Create users (depends on roles)
-        await create_admin_users()
-        await create_sample_creators()
-        await create_sample_companies()
+        # await create_admin_users()
+        # await create_sample_creators()
+        # await create_sample_companies()
         
-        print("\n✅ Database seeded successfully!")
-        print("\nDefault admin credentials:")
-        print("Super Admin: superadmin@yourapp.com / SuperAdmin123!")
-        print("Admin: admin@yourapp.com / Admin123!")
-        print("Moderator: moderator@yourapp.com / Moderator123!")
-        print("\nSample Creator: john.creator@example.com / Creator123!")
-        print("Sample Company: marketing@techstartup.com / Company123!")
+        # print("\n✅ Database seeded successfully!")
+        # print("\nDefault admin credentials:")
+        # print("Super Admin: superadmin@yourapp.com / SuperAdmin123!")
+        # print("Admin: admin@yourapp.com / Admin123!")
+        # print("Moderator: moderator@yourapp.com / Moderator123!")
+        # print("\nSample Creator: john.creator@example.com / Creator123!")
+        # print("Sample Company: marketing@techstartup.com / Company123!")
         
     except Exception as e:
         print(f"❌ Error seeding database: {e}")

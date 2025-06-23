@@ -312,7 +312,7 @@ class UserResponse(BaseModel):
     user: User
 
 class UserWithProfilesResponse(BaseModel):
-    user: UserWithProfiles
+    user: UserResponse
 
 class UserStatusUpdate(BaseModel):
     status: AccountStatus

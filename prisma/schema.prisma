@@ -36,6 +36,7 @@ model User {
   userType                UserType
   isActive                Boolean  @default(true)
   isVerified              Boolean  @default(false)
+  emailVerificationToken  String?
   emailVerifiedAt         DateTime?
   passwordResetToken      String?
   passwordResetExpiresAt  DateTime?
@@ -61,39 +62,40 @@ model User {
 
 // Creator Profile and Related Models
 model CreatorProfile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  plan        PlanType @default(FREE)
-  bio         String?
-  niche       String[]
-  totalFollowers Int   @default(0)
-  avgEngagement  Float @default(0.0)
-  isVerified     Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                          String            @id @default(cuid())
+  userId                      String            @unique
+  plan                        PlanType          @default(FREE)
+  bio                         String?
+  niche                       String[]
+  totalFollowers              Int               @default(0)
+  avgEngagement               Float             @default(0.0)
+  isVerified                  Boolean           @default(false)
+  createdAt                   DateTime          @default(now())
+  updatedAt                   DateTime          @updatedAt
 
   // Relationships
-  user              User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  user                        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccounts              SocialAccount[]
   @@map("creator_profiles")
 }
 
 
 // Company Profile
 model CompanyProfile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  companyName String
-  plan        PlanType @default(BASIC)
-  industry    String
-  website     String?
-  description String?
-  logo        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  companyName         String
+  plan                PlanType @default(BASIC)
+  industry            String
+  website             String?
+  description         String?
+  logo                String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   // Relationships
-  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccounts      SocialAccount[]
 
   @@map("company_profiles")
 }
@@ -110,6 +112,77 @@ model AdminProfile {
 
   @@map("admin_profiles")
 }
+
+
+model SocialAccount {
+  id              String        @id @default(cuid())
+  creatorId       String?
+  companyId       String?
+  userId          String 
+  platform        SocialPlatform
+  platformId      String        // Platform-specific user ID
+  username        String
+  expiresAt       DateTime?
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  status          ConnectionStatus @default(CONNECTED)
+  statusUpdatedAt DateTime @default(now())
+
+  // Enhanced token management
+  accessToken     String
+  refreshToken    String?
+  scope           String?       // Permissions granted
+  tokenType       String?       // Bearer, etc.
+  lastRefreshed   DateTime?     // When token was last refreshed
+  refreshAttempts Int @default(0) // Track failed refresh attempts
+  isExpired       Boolean @default(false) // Manual expiry flag
+  errorCount      Int @default(0) // Track API errors
+  lastError       String?       // Last error message
+  
+  // Rate limiting
+  dailyApiCalls   Int @default(0) // Track usage
+  lastApiCall     DateTime?     // For rate limiting
+  quotaResetAt    DateTime?     // When quota resets
+
+  // Relationships
+  creator     CreatorProfile? @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  company     CompanyProfile? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([creatorId, platform])
+  @@map("social_accounts")
+}
+
+
+model Webhook {
+  id            String @id @default(cuid())
+  platform      SocialPlatform
+  eventType     String
+  payload       Json
+  processed     Boolean @default(false)
+  createdAt     DateTime @default(now())
+  
+  @@map("webhooks")
+}
+
+
+model PlatformConfig {
+  id              String @id @default(cuid())
+  platform        SocialPlatform
+  appId           String
+  appSecret       String // Encrypted
+  apiVersion      String?
+  rateLimitPerHour Int
+  rateLimitPerDay  Int?
+  isActive        Boolean @default(true)
+  createdAt       DateTime @default(now())
+  
+  @@unique([platform])
+  @@map("platform_configs")
+}
+
+
 
 model Role {
   id          String @id @default(cuid())
@@ -151,6 +224,14 @@ model UserRole {
   @@map("user_roles")
 }
 
+model OAuthState {
+  id        String   @id @default(uuid())
+  state     String   @unique
+  userId    String
+  platform  String
+  createdAt DateTime @default(now())
+}
+
 // Enums
 enum AccountStatus {
   ACTIVE
@@ -176,4 +257,22 @@ enum PlanType {
   FREE
   BASIC
   PRO
+}
+
+enum SocialPlatform {
+  INSTAGRAM
+  FACEBOOK
+  YOUTUBE
+  TWITTER
+  TIKTOK
+  LINKEDIN
+}
+
+enum ConnectionStatus {
+  CONNECTED
+  TOKEN_EXPIRED
+  RATE_LIMITED
+  PERMISSION_REVOKED
+  PLATFORM_ERROR
+  MAINTENANCE
 }

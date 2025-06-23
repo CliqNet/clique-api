@@ -1,238 +1,120 @@
 # app/api/users/user.py
 from datetime import datetime, timedelta, timezone
+from pydantic import ValidationError
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 from fastapi.security import HTTPBearer
 from prisma.enums import UserType, AccountStatus, AdminRole, PlanType
 from app.models.user import (
-    UserResponse, UserWithProfilesResponse, CreateUserRequest, UpdateUserRequest,
-    UserListResponse, UserSearchParams, ChangePasswordRequest, ResetPasswordRequest,
+    User, UserWithProfiles, UserResponse, UserWithProfilesResponse, CreateUserRequest, UpdateUserRequest,
+    UserListResponse, Pagination, UserSearchParams, ChangePasswordRequest, ResetPasswordRequest,
     TwoFactorRequest, AssignRoleRequest, BulkUpdateRequest, BulkDeleteRequest,
     BulkOperationResponse, UserStatusUpdate, UserActiveUpdate
 )
 from app.lib.prisma import prisma
 from app.core.config import settings
 from app.api.auth.auth import get_current_user, hash_password, verify_password
+from .user_utils import format_user_response, check_admin_permission, fetch_users_by_type
 
 router = APIRouter(prefix="/users", tags=["User Management"])
 security = HTTPBearer()
 
+# ===== USER TYPE SPECIFIC ENDPOINTS =====
 
-# ===== UTILITY FUNCTIONS =====
-def format_user_response(user, include_profiles=True, include_roles=False):
-    """Format user response with optional profile and role data"""
-    
-    # Base user data
-    user_data = {
-        "id": user.id,
-        "email": user.email,
-        "username": user.username,
-        "firstName": user.firstName,
-        "lastName": user.lastName,
-        "userType": user.userType,
-        "status": user.status,
-        "isVerified": user.isVerified,
-        "isActive": user.isActive if hasattr(user, 'isActive') else True,
-        "avatar": user.avatar,
-        "lastLoginAt": user.lastLoginAt.isoformat() if user.lastLoginAt else None,
-        "createdAt": user.createdAt.isoformat() if user.createdAt else None,
-        "updatedAt": user.updatedAt.isoformat() if hasattr(user, 'updatedAt') and user.updatedAt else None,
-    }
-    
-    # Add profiles if requested and available
-    if include_profiles:
-        profile_data = None
-        if user.userType == UserType.CREATOR and hasattr(user, 'creator') and user.creator:
-            profile_data = {
-                "role": "CREATOR",
-                "bio": user.creator.bio,
-                "niche": user.creator.niche,
-                "totalFollowers": user.creator.totalFollowers,
-                "avgEngagement": user.creator.avgEngagement,
-                "isVerified": user.creator.isVerified,
-                "plan": user.creator.plan
-            }
-        elif user.userType == UserType.COMPANY and hasattr(user, 'company') and user.company:
-            profile_data = {
-                "role": "COMPANY",
-                "companyName": user.company.companyName,
-                "industry": user.company.industry,
-                "website": user.company.website,
-                "description": user.company.description,
-                "plan": user.company.plan
-            }
-        elif user.userType == UserType.ADMIN and hasattr(user, 'admin') and user.admin:
-            profile_data = {
-                "role": user.admin.role,
-            }
-        
-        user_data["profile"] = profile_data
-    
-    # Add roles if requested and available
-    if include_roles and hasattr(user, 'roles') and user.roles:
-        user_roles = []
-        for user_role in user.roles:
-            role = user_role.role
-            user_roles.append({
-                "id": role.id,
-                "name": role.name,
-                "description": role.description
-            })
-        user_data["roles"] = user_roles
-    
-    return user_data
+@router.get("/creators", response_model=UserListResponse)
+async def get_creators(
+    # current_user=Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100)
+):
+    """Get list of all creator users"""
+    # check_admin_permission(current_user, AdminRole.ADMIN)
+    # return await fetch_users_by_type(UserType.CREATOR, page, limit)
 
+    print("I get here")
+    try:
+        return await fetch_users_by_type(UserType.CREATOR, page, limit)
+    except Exception as e:
+        print(f"Error in get_creators: {e}")
+        raise
 
-def check_admin_permission(current_user, required_admin_role: Optional[AdminRole] = None):
-    """Check if user has admin permissions"""
-    if current_user.userType != UserType.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-    
-    if required_admin_role and hasattr(current_user, 'admin') and current_user.admin:
-        if current_user.admin.role == AdminRole.SUPER_ADMIN:
-            return True  # Super admin can do everything
-        elif required_admin_role == AdminRole.ADMIN and current_user.admin.role in [AdminRole.ADMIN, AdminRole.SUPER_ADMIN]:
-            return True
-        elif required_admin_role == AdminRole.MODERATOR and current_user.admin.role in [AdminRole.MODERATOR, AdminRole.ADMIN, AdminRole.SUPER_ADMIN]:
-            return True
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient admin privileges"
-            )
-    
-    return True
+@router.get("/companies", response_model=UserListResponse)
+async def get_companies(
+    # current_user=Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100)
+):
+    """Get list of all company users"""
+    # check_admin_permission(current_user, AdminRole.ADMIN)
+    return await fetch_users_by_type(UserType.COMPANY, page, limit)
 
-async def fetch_users_by_type(
-    user_type: str,
-    page: int,
-    limit: int
-) -> UserListResponse:
-    skip = (page - 1) * limit
-    users = await prisma.user.find_many(
-        where={"userType": user_type},
-        skip=skip,
-        take=limit,
-        order={"createdAt": "desc"}
-    )
-    total = await prisma.user.count(where={"userType": user_type})
-    return UserListResponse(users=users, total=total)
+@router.get("/admins", response_model=UserListResponse)
+async def get_admins(
+    # current_user=Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100)
+):
+    """Get list of all admin users"""
+    # check_admin_permission(current_user, AdminRole.SUPER_ADMIN)
+    return await fetch_users_by_type(UserType.ADMIN, page, limit)
 
 
 # ===== USER MANAGEMENT ROUTES =====
 
 @router.get("", response_model=UserListResponse)
 async def get_users(
-    current_user = Depends(get_current_user),
+    # current_user = Depends(get_current_user),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    search: Optional[str] = Query(None),
-    userType: Optional[UserType] = Query(None),
-    status: Optional[AccountStatus] = Query(None),
-    isActive: Optional[bool] = Query(None),
-    isVerified: Optional[bool] = Query(None),
-    plan: Optional[PlanType] = Query(None),
-    sortBy: str = Query("createdAt"),
-    sortOrder: str = Query("desc"),
     includeProfiles: bool = Query(True),
     includeRoles: bool = Query(False)
 ):
-    """Get users with pagination and filtering"""
-    check_admin_permission(current_user)
-    
-    # Calculate offset
+    """Alternative approach with simpler includes"""
     skip = (page - 1) * limit
+
+    # check_admin_permission(current_user)
     
-    # Build where clause
-    where_conditions = []
-    
-    if search:
-        search_conditions = [
-            {"email": {"contains": search, "mode": "insensitive"}},
-            {"username": {"contains": search, "mode": "insensitive"}},
-            {"firstName": {"contains": search, "mode": "insensitive"}},
-            {"lastName": {"contains": search, "mode": "insensitive"}}
-        ]
-        where_conditions.append({"OR": search_conditions})
-    
-    if userType:
-        where_conditions.append({"userType": userType})
-    
-    if status:
-        where_conditions.append({"status": status})
-    
-    if isActive is not None:
-        where_conditions.append({"isActive": isActive})
-    
-    if isVerified is not None:
-        where_conditions.append({"isVerified": isVerified})
-    
-    # Plan filtering - need to check in profiles
-    if plan:
-        plan_conditions = []
-        if userType == UserType.CREATOR or not userType:
-            plan_conditions.append({"creator": {"plan": plan}})
-        if userType == UserType.COMPANY or not userType:
-            plan_conditions.append({"company": {"plan": plan}})
-        
-        if plan_conditions:
-            where_conditions.append({"OR": plan_conditions})
-    
-    where_clause = {"AND": where_conditions} if where_conditions else {}
-    
-    # Build include clause
-    include_clause = {}
-    if includeProfiles:
-        include_clause.update({
-            "creator": True,
-            "company": True,
-            "admin": True
-        })
-    
-    if includeRoles:
-        include_clause["roles"] = {
-            "include": {
-                "role": True
-            }
-        }
-    
-    # Build order by
-    order_by = {sortBy: sortOrder}
-    
-    # Get users and total count
+    # Simple approach - include everything
     users = await prisma.user.find_many(
-        where=where_clause,
-        include=include_clause,
+        include={
+            "creator": True,
+            "company": True, 
+            "admin": True,
+            "roles": {
+                "include": {
+                    "role": True
+                }
+            } if includeRoles else False
+        },
         skip=skip,
         take=limit,
-        order=order_by
+        order={"createdAt": "desc"}
     )
     
-    total = await prisma.user.count(where=where_clause)
+    total = await prisma.user.count()
     
     return UserListResponse(
         users=[format_user_response(user, includeProfiles, includeRoles) for user in users],
-        total=total,
-        page=page,
-        limit=limit,
-        totalPages=(total + limit - 1) // limit
+        pagination=Pagination(
+            total=total,
+            page=page,
+            limit=limit,
+            totalPages=(total + limit - 1)
+        )
     )
 
 
-@router.get("/{user_id}", response_model=UserWithProfilesResponse)
+@router.get("/{user_id}", response_model=User)
 async def get_user(
     user_id: str,
-    current_user = Depends(get_current_user),
+    # current_user = Depends(get_current_user),
     includeProfiles: bool = Query(True),
     includeRoles: bool = Query(False)
 ):
     """Get a specific user by ID"""
     # Users can view their own profile, admins can view any profile
-    if current_user.id != user_id:
-        check_admin_permission(current_user)
+    # if current_user.id != user_id:
+    #     check_admin_permission(current_user)
     
     include_clause = {}
     if includeProfiles:
@@ -260,8 +142,8 @@ async def get_user(
             detail="User not found"
         )
     
+    
     return format_user_response(user, includeProfiles, includeRoles)
-
 
 @router.get("/username/{username}", response_model=UserWithProfilesResponse)
 async def get_user_by_username(
@@ -346,7 +228,7 @@ async def create_user(
                 "userId": user.id,
                 "bio": user_data.bio or "",
                 "niche": user_data.niche or [],
-                "plan": user_data.plan or Plan.FREE
+                "plan": user_data.plan or PlanType.FREE
             }
         )
     elif user_data.userType == UserType.COMPANY:
@@ -363,7 +245,7 @@ async def create_user(
                 "industry": user_data.industry or "",
                 "website": user_data.website,
                 "description": user_data.description or "",
-                "plan": user_data.plan or Plan.FREE
+                "plan": user_data.plan or PlanType.FREE
             }
         )
     elif user_data.userType == UserType.ADMIN:
@@ -908,38 +790,3 @@ async def bulk_update_users(
         failed=failed,
         totalProcessed=len(update_data.userIds)
     )
-
-
-# ===== USER TYPE SPECIFIC ENDPOINTS =====
-
-@router.get("/creators", response_model=UserListResponse)
-async def get_creators(
-    current_user=Depends(get_current_user),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100)
-):
-    """Get list of all creator users"""
-    check_admin_permission(current_user, AdminRole.ADMIN)
-    return await fetch_users_by_type(UserType.CREATOR, page, limit)
-
-
-@router.get("/companies", response_model=UserListResponse)
-async def get_companies(
-    current_user=Depends(get_current_user),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100)
-):
-    """Get list of all company users"""
-    check_admin_permission(current_user, AdminRole.ADMIN)
-    return await fetch_users_by_type(UserType.COMPANY, page, limit)
-
-
-@router.get("/admins", response_model=UserListResponse)
-async def get_admins(
-    current_user=Depends(get_current_user),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100)
-):
-    """Get list of all admin users"""
-    check_admin_permission(current_user, AdminRole.SUPER_ADMIN)
-    return await fetch_users_by_type(UserType.ADMIN, page, limit)

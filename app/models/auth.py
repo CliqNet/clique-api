@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, EmailStr, validator
 from prisma.enums import UserType, AccountStatus
-
+import re
 
 # ===== PYDANTIC MODELS =====
 class SignupRequest(BaseModel):
@@ -44,6 +44,11 @@ class SignupRequest(BaseModel):
         if not v.replace("_", "").replace("-", "").isalnum():
             raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
         return v.lower()
+    
+    @validator('website')
+    def validate_website(cls, v):
+        if v and not re.match(r'^https?://', v):
+            raise ValueError('Website must start with http:// or https://')
 
 class LoginRequest(BaseModel):
     email: EmailStr

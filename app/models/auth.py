@@ -1,9 +1,10 @@
 # app/models
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 from pydantic import BaseModel, EmailStr, validator
-from prisma.enums import UserType, AccountStatus
+from prisma.enums import UserType #, AccountStatus
 import re
+
 
 # ===== PYDANTIC MODELS =====
 class SignupRequest(BaseModel):
@@ -13,12 +14,12 @@ class SignupRequest(BaseModel):
     firstName: str
     lastName: str
     userType: UserType
-    
+
     # Optional profile data
     # For creators
     bio: Optional[str] = None
     niche: Optional[list[str]] = None
-    
+
     # For companies
     companyName: Optional[str] = None
     industry: Optional[str] = None
@@ -42,20 +43,20 @@ class SignupRequest(BaseModel):
         if len(v) < 3:
             raise ValueError("Username must be at least 3 characters long")
         if not v.replace("_", "").replace("-", "").isalnum():
-            raise ValueError("Username can only contain letters, numbers, underscores, and hyphens")
+            raise ValueError(
+                "Username can only contain letters, numbers, underscores, and hyphens"
+            )
         return v.lower()
-    
-    @validator('website')
+
+    @validator("website")
     def validate_website(cls, v):
-        if v and not re.match(r'^https?://', v):
-            raise ValueError('Website must start with http:// or https://')
+        if v and not re.match(r"^https?://", v):
+            raise ValueError("Website must start with http:// or https://")
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
-
-
 
 
 class TokenResponse(BaseModel):
@@ -63,6 +64,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     refresh_token: Optional[str] = None  # Optional for security
+
 
 class UserResponse(BaseModel):
     id: str
@@ -80,27 +82,10 @@ class UserResponse(BaseModel):
     profile: Optional[dict] = None  # Creator/Company/Admin profile
     roles: Optional[List[dict]] = None
 
-# class TokenResponse(BaseModel):
-#     access_token: str
-#     token_type: str = "bearer"
-#     expires_in: int
-#     user: Dict[str, Any]
-
-# class UserResponse(BaseModel):
-#     id: str
-#     email: str
-#     username: str
-#     firstName: str
-#     lastName: str
-#     userType: UserType
-#     status: AccountStatus
-#     isVerified: bool
-#     avatar: Optional[str] = None
-#     createdAt: datetime
-#     profile: Optional[Dict[str, Any]] = None
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr
+
 
 class PasswordResetConfirm(BaseModel):
     token: str

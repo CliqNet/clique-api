@@ -1,10 +1,9 @@
-
 # File: app/models/__init__.py
 
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, EmailStr, validator
+from pydantic import BaseModel, EmailStr
 
 
 # Enums matching Prisma schema
@@ -12,6 +11,7 @@ class UserType(str, Enum):
     CREATOR = "CREATOR"
     COMPANY = "COMPANY"
     ADMIN = "ADMIN"
+
 
 class SocialPlatform(str, Enum):
     INSTAGRAM = "INSTAGRAM"
@@ -21,12 +21,14 @@ class SocialPlatform(str, Enum):
     TIKTOK = "TIKTOK"
     LINKEDIN = "LINKEDIN"
 
+
 class PostStatus(str, Enum):
     DRAFT = "DRAFT"
     SCHEDULED = "SCHEDULED"
     PUBLISHED = "PUBLISHED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
 
 class CampaignStatus(str, Enum):
     DRAFT = "DRAFT"
@@ -35,13 +37,16 @@ class CampaignStatus(str, Enum):
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
 
+
 class ConnectionStatus(str, Enum):
     PENDING = "PENDING"
     ACCEPTED = "ACCEPTED"
     DECLINED = "DECLINED"
     BLOCKED = "BLOCKED"
 
+
 # Pydantic Models for API
+
 
 # User Models
 class UserBase(BaseModel):
@@ -52,13 +57,16 @@ class UserBase(BaseModel):
     userType: UserType
     avatar: Optional[str] = None
 
+
 class UserCreate(UserBase):
     password: str
+
 
 class UserUpdate(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
     avatar: Optional[str] = None
+
 
 class UserResponse(UserBase):
     id: str
@@ -70,20 +78,25 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
 
 # Creator Models
 class CreatorProfileBase(BaseModel):
     bio: Optional[str] = None
     niche: List[str] = []
 
+
 class CreatorProfileCreate(CreatorProfileBase):
     pass
 
+
 class CreatorProfileUpdate(CreatorProfileBase):
     pass
+
 
 class CreatorProfileResponse(CreatorProfileBase):
     id: str
@@ -96,10 +109,12 @@ class CreatorProfileResponse(CreatorProfileBase):
     class Config:
         from_attributes = True
 
+
 # Social Account Models
 class SocialAccountBase(BaseModel):
     platform: SocialPlatform
     username: str
+
 
 class SocialAccountCreate(SocialAccountBase):
     platformId: str
@@ -107,12 +122,14 @@ class SocialAccountCreate(SocialAccountBase):
     refreshToken: Optional[str] = None
     expiresAt: Optional[datetime] = None
 
+
 class SocialAccountUpdate(BaseModel):
     username: Optional[str] = None
     accessToken: Optional[str] = None
     refreshToken: Optional[str] = None
     expiresAt: Optional[datetime] = None
     isActive: Optional[bool] = None
+
 
 class SocialAccountResponse(SocialAccountBase):
     id: str
@@ -123,20 +140,24 @@ class SocialAccountResponse(SocialAccountBase):
     class Config:
         from_attributes = True
 
+
 # Post Models
 class PostBase(BaseModel):
     content: str
     mediaUrls: List[str] = []
     scheduledAt: Optional[datetime] = None
 
+
 class PostCreate(PostBase):
     platformIds: List[str]  # Social account IDs to post to
+
 
 class PostUpdate(BaseModel):
     content: Optional[str] = None
     mediaUrls: Optional[List[str]] = None
     scheduledAt: Optional[datetime] = None
     status: Optional[PostStatus] = None
+
 
 class PostResponse(PostBase):
     id: str
@@ -148,6 +169,7 @@ class PostResponse(PostBase):
     class Config:
         from_attributes = True
 
+
 # Company Models
 class CompanyProfileBase(BaseModel):
     companyName: str
@@ -156,12 +178,15 @@ class CompanyProfileBase(BaseModel):
     description: Optional[str] = None
     logo: Optional[str] = None
 
+
 class CompanyProfileCreate(CompanyProfileBase):
     pass
+
 
 class CompanyProfileUpdate(CompanyProfileBase):
     companyName: Optional[str] = None
     industry: Optional[str] = None
+
 
 class CompanyProfileResponse(CompanyProfileBase):
     id: str
@@ -171,6 +196,7 @@ class CompanyProfileResponse(CompanyProfileBase):
     class Config:
         from_attributes = True
 
+
 # Campaign Models
 class CampaignBase(BaseModel):
     name: str
@@ -179,8 +205,10 @@ class CampaignBase(BaseModel):
     startDate: datetime
     endDate: datetime
 
+
 class CampaignCreate(CampaignBase):
     folderId: Optional[str] = None
+
 
 class CampaignUpdate(BaseModel):
     name: Optional[str] = None
@@ -189,6 +217,7 @@ class CampaignUpdate(BaseModel):
     startDate: Optional[datetime] = None
     endDate: Optional[datetime] = None
     status: Optional[CampaignStatus] = None
+
 
 class CampaignResponse(CampaignBase):
     id: str
@@ -199,10 +228,12 @@ class CampaignResponse(CampaignBase):
     class Config:
         from_attributes = True
 
+
 # Campaign Creator Models
 class CampaignCreatorInvite(BaseModel):
     creatorId: str
     fee: float
+
 
 class CampaignCreatorResponse(BaseModel):
     id: str
@@ -215,6 +246,7 @@ class CampaignCreatorResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 # Analytics Models
 class CreatorAnalyticsResponse(BaseModel):
@@ -230,6 +262,7 @@ class CreatorAnalyticsResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class PostAnalyticsResponse(BaseModel):
     id: str
     postId: str
@@ -243,6 +276,7 @@ class PostAnalyticsResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class CampaignAnalyticsResponse(BaseModel):
     id: str
@@ -258,16 +292,20 @@ class CampaignAnalyticsResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # Folder Models
 class FolderBase(BaseModel):
     name: str
     description: Optional[str] = None
 
+
 class FolderCreate(FolderBase):
     parentId: Optional[str] = None
 
+
 class FolderUpdate(FolderBase):
     name: Optional[str] = None
+
 
 class FolderResponse(FolderBase):
     id: str
@@ -278,9 +316,11 @@ class FolderResponse(FolderBase):
     class Config:
         from_attributes = True
 
+
 # Connection Models
 class ConnectionRequest(BaseModel):
     creatorId: str
+
 
 class ConnectionResponse(BaseModel):
     id: str
@@ -291,6 +331,7 @@ class ConnectionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 # Notification Models
 class NotificationResponse(BaseModel):

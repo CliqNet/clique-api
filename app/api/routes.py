@@ -27,24 +27,23 @@ async def startup_event():
     logger.info("Starting Social Auth API...")
     await task_manager.start()
 
+
 @router.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
     logger.info("Shutting down Social Auth API...")
     await task_manager.stop()
 
+
 @router.get("/")
 def read_root():
     return {
         "message": f"Welcome to {settings.APP_NAME}!",
         "env": settings.APP_ENV,
-        "debug": settings.DEBUG
+        "debug": settings.DEBUG,
     }
+
 
 @router.get("/health")
 def health_check():
-    return {
-        "status": "healthy",
-        "app": settings.APP_NAME,
-        "env": settings.APP_ENV
-    }
+    return {"status": "healthy", "app": settings.APP_NAME, "env": settings.APP_ENV}

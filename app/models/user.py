@@ -1,38 +1,40 @@
 from enum import Enum
 from typing import List, Optional, Union, Literal
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr #, Field
 from datetime import datetime
 
 
 # === ENUMS ===
 
+
 class UserType(str, Enum):
-    CREATOR = 'CREATOR'
-    COMPANY = 'COMPANY'
-    ADMIN = 'ADMIN'
+    CREATOR = "CREATOR"
+    COMPANY = "COMPANY"
+    ADMIN = "ADMIN"
 
 
 class AccountStatus(str, Enum):
-    PENDING_VERIFICATION = 'PENDING_VERIFICATION'
-    ACTIVE = 'ACTIVE'
-    SUSPENDED = 'SUSPENDED'
-    BANNED = 'BANNED'
+    PENDING_VERIFICATION = "PENDING_VERIFICATION"
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    BANNED = "BANNED"
 
 
 class PlanType(str, Enum):
-    FREE = 'FREE'
-    BASIC = 'BASIC'
-    PREMIUM = 'PREMIUM'
-    ENTERPRISE = 'ENTERPRISE'
+    FREE = "FREE"
+    BASIC = "BASIC"
+    PREMIUM = "PREMIUM"
+    ENTERPRISE = "ENTERPRISE"
 
 
 class AdminRole(str, Enum):
-    SUPER_ADMIN = 'SUPER_ADMIN'
-    ADMIN = 'ADMIN'
-    MODERATOR = 'MODERATOR'
+    SUPER_ADMIN = "SUPER_ADMIN"
+    ADMIN = "ADMIN"
+    MODERATOR = "MODERATOR"
 
 
 # === PROFILE SCHEMAS ===
+
 
 class CreatorProfile(BaseModel):
     id: str
@@ -70,6 +72,7 @@ class AdminProfile(BaseModel):
 
 # === ROLE MODELS ===
 
+
 class RolePermission(BaseModel):
     id: str
     roleId: str
@@ -94,6 +97,7 @@ class UserRole(BaseModel):
 
 # === SESSION MODEL ===
 
+
 class UserSession(BaseModel):
     id: str
     userId: str
@@ -104,6 +108,7 @@ class UserSession(BaseModel):
 
 # === USER MODELS ===
 
+
 class User(BaseModel):
     id: str
     email: EmailStr
@@ -112,7 +117,7 @@ class User(BaseModel):
     lastName: str
     avatar: Optional[str] = None
     phone: Optional[str] = None
-    location: Optional[str] = None 
+    location: Optional[str] = None
     userType: UserType
     isActive: bool
     isVerified: bool
@@ -137,6 +142,7 @@ class UserWithProfiles(User):
 
 
 # === CREATE REQUEST MODELS ===
+
 
 class CreateCreatorProfileData(BaseModel):
     plan: Optional[PlanType] = PlanType.FREE
@@ -166,11 +172,14 @@ class CreateUserRequest(BaseModel):
     userType: UserType
     avatar: Optional[str] = None
     profileData: Optional[
-        Union[CreateCreatorProfileData, CreateCompanyProfileData, CreateAdminProfileData]
+        Union[
+            CreateCreatorProfileData, CreateCompanyProfileData, CreateAdminProfileData
+        ]
     ] = None
 
 
 # === UPDATE REQUEST MODELS ===
+
 
 class UpdateCreatorProfileData(BaseModel):
     plan: Optional[PlanType] = None
@@ -201,17 +210,20 @@ class UpdateUserRequest(BaseModel):
     lastName: Optional[str] = None
     avatar: Optional[str] = None
     phone: Optional[str] = None
-    location: Optional[str] = None 
+    location: Optional[str] = None
     isActive: Optional[bool] = None
     status: Optional[AccountStatus] = None
     twoFactorEnabled: Optional[bool] = None
     password: Optional[str] = None
     profileData: Optional[
-        Union[UpdateCreatorProfileData, UpdateCompanyProfileData, UpdateAdminProfileData]
+        Union[
+            UpdateCreatorProfileData, UpdateCompanyProfileData, UpdateAdminProfileData
+        ]
     ] = None
 
 
 # === SEARCH + PAGINATION ===
+
 
 class UserSearchParams(BaseModel):
     page: Optional[int] = 1
@@ -243,6 +255,7 @@ class UserListResponse(BaseModel):
 
 # === SECURITY ===
 
+
 class ChangePasswordRequest(BaseModel):
     currentPassword: Optional[str] = None
     newPassword: str
@@ -259,6 +272,7 @@ class TwoFactorRequest(BaseModel):
 
 
 # === ROLE MGMT ===
+
 
 class AssignRoleRequest(BaseModel):
     roleId: str
@@ -277,6 +291,7 @@ class UpdateRoleRequest(BaseModel):
 
 
 # === BULK OPS ===
+
 
 class BulkDeleteRequest(BaseModel):
     userIds: List[str]
@@ -300,6 +315,7 @@ class BulkOperationResponse(BaseModel):
 
 # === ERROR RESPONSES ===
 
+
 class APIError(BaseModel):
     message: str
     code: Optional[str] = None
@@ -312,15 +328,17 @@ class ValidationError(APIError):
     field: str
 
 
-
 class UserResponse(BaseModel):
     user: User
+
 
 class UserWithProfilesResponse(BaseModel):
     user: UserResponse
 
+
 class UserStatusUpdate(BaseModel):
     status: AccountStatus
+
 
 class UserActiveUpdate(BaseModel):
     isActive: bool

@@ -287,11 +287,11 @@ async def create_sample_creators():
     """Create sample creator users"""
     creators = [
         {
-            "email": "john.creator@example.com",
-            "username": "johncreator",
-            "password": "Creator123!",
-            "firstName": "John",
-            "lastName": "Creator",
+            "email": "mzwandile.dlomo@clique.com",
+            "username": "mzwandiledlomo",
+            "password": "mzwandile123!",
+            "firstName": "Mzwandile",
+            "lastName": "Dlomo",
             "userType": UserType.CREATOR,
             "status": AccountStatus.ACTIVE,
             "isVerified": True,
@@ -543,27 +543,27 @@ async def main():
         await prisma.connect()
         print("Connected to database")
         
-        # # Create permissions first
-        # await create_permissions()
+        # Create permissions first
+        await create_permissions()
         
-        # # Create roles (depends on permissions)
-        # await create_roles()
+        # Create roles (depends on permissions)
+        await create_roles()
 
         # Create socials config
         await create_platform_configs()
         
         # Create users (depends on roles)
-        # await create_admin_users()
-        # await create_sample_creators()
-        # await create_sample_companies()
+        await create_admin_users()
+        await create_sample_creators()
+        await create_sample_companies()
         
-        # print("\n✅ Database seeded successfully!")
-        # print("\nDefault admin credentials:")
-        # print("Super Admin: superadmin@yourapp.com / SuperAdmin123!")
-        # print("Admin: admin@yourapp.com / Admin123!")
-        # print("Moderator: moderator@yourapp.com / Moderator123!")
-        # print("\nSample Creator: john.creator@example.com / Creator123!")
-        # print("Sample Company: marketing@techstartup.com / Company123!")
+        print("\n✅ Database seeded successfully!")
+        print("\nDefault admin credentials:")
+        print("Super Admin: superadmin@yourapp.com / SuperAdmin123!")
+        print("Admin: admin@yourapp.com / Admin123!")
+        print("Moderator: moderator@yourapp.com / Moderator123!")
+        print("\nSample Creator: john.creator@example.com / Creator123!")
+        print("Sample Company: marketing@techstartup.com / Company123!")
         
     except Exception as e:
         print(f"❌ Error seeding database: {e}")

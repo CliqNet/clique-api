@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/clique")
+    DIRECT_URL: str = os.getenv("DIRECT_URL", "postgresql://user:password@localhost:5432/clique")
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
 
     # Security

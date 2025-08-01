@@ -1,6 +1,6 @@
 # app/models
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, EmailStr, validator
 from prisma.enums import UserType, AccountStatus
 import re
@@ -54,11 +54,15 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
+
+
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
-    user: Dict[str, Any]
+    refresh_token: Optional[str] = None  # Optional for security
 
 class UserResponse(BaseModel):
     id: str
@@ -66,12 +70,34 @@ class UserResponse(BaseModel):
     username: str
     firstName: str
     lastName: str
-    userType: UserType
-    status: AccountStatus
+    userType: str
+    status: str
     isVerified: bool
-    avatar: Optional[str] = None
+    avatar: Optional[str]
+    phone: Optional[str] = None
+    location: Optional[str] = None
     createdAt: datetime
-    profile: Optional[Dict[str, Any]] = None
+    profile: Optional[dict] = None  # Creator/Company/Admin profile
+    roles: Optional[List[dict]] = None
+
+# class TokenResponse(BaseModel):
+#     access_token: str
+#     token_type: str = "bearer"
+#     expires_in: int
+#     user: Dict[str, Any]
+
+# class UserResponse(BaseModel):
+#     id: str
+#     email: str
+#     username: str
+#     firstName: str
+#     lastName: str
+#     userType: UserType
+#     status: AccountStatus
+#     isVerified: bool
+#     avatar: Optional[str] = None
+#     createdAt: datetime
+#     profile: Optional[Dict[str, Any]] = None
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr

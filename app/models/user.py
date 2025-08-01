@@ -111,6 +111,8 @@ class User(BaseModel):
     firstName: str
     lastName: str
     avatar: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None 
     userType: UserType
     isActive: bool
     isVerified: bool
@@ -198,9 +200,12 @@ class UpdateUserRequest(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
     avatar: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None 
     isActive: Optional[bool] = None
     status: Optional[AccountStatus] = None
     twoFactorEnabled: Optional[bool] = None
+    password: Optional[str] = None
     profileData: Optional[
         Union[UpdateCreatorProfileData, UpdateCompanyProfileData, UpdateAdminProfileData]
     ] = None

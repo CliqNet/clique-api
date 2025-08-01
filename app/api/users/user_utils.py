@@ -9,7 +9,7 @@ from app.lib.prisma import prisma
 # ===== UTILITY FUNCTIONS =====
 def format_user_response(user, include_profiles=True, include_roles=False):
     """Format user response with optional profile and role data"""
-    # print(user)
+
     # Base user data
     user_data = {
         "id": user.id,
@@ -17,6 +17,8 @@ def format_user_response(user, include_profiles=True, include_roles=False):
         "username": user.username,
         "firstName": user.firstName,
         "lastName": user.lastName,
+        "location": user.location if hasattr(user, 'location') else None,
+        "phone": user.phone if hasattr(user, 'phone') else None,
         "userType": user.userType,
         "status": user.status,
         "isVerified": user.isVerified,

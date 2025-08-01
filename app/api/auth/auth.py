@@ -1,7 +1,7 @@
 # app/api/auth/auth.py
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
 from .auth_utils import hash_password, verify_password, create_access_token, create_refresh_token, get_current_user, format_user_response
@@ -163,27 +163,9 @@ async def signup(request: SignupRequest):
 async def login(request: LoginRequest):
     """User login"""
     
-    # Find user with proper includes
+    # Find user with minimal data for authentication
     user = await prisma.user.find_unique(
-        where={"email": request.email},
-        include={
-            "creator": True,
-            "company": True,
-            "admin": True,
-            "roles": {
-                "include": {
-                    "role": {
-                        "include": {
-                            "permissions": {
-                                "include": {
-                                    "permission": True
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        where={"email": request.email}
     )
     
     if not user or not verify_password(request.password, user.password):
@@ -225,18 +207,65 @@ async def login(request: LoginRequest):
     
     return TokenResponse(
         access_token=access_token,
+        token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_HOURS * 3600,
-        user=format_user_response(user)
+        refresh_token=refresh_token
     )
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user = Depends(get_current_user)):
-    """Get current user information"""
-    return format_user_response(current_user)
+    """Get current user information with full profile data"""
+    
+    # Fetch complete user data with all necessary includes
+    user = await prisma.user.find_unique(
+        where={"id": current_user.id},
+        include={
+            "creator": True,
+            "company": True,
+            "admin": True,
+            "roles": {
+                "include": {
+                    "role": {
+                        "include": {
+                            "permissions": {
+                                "include": {
+                                    "permission": True
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+    
+    return format_user_response(user)
 
 @router.post("/logout")
-async def logout(current_user = Depends(get_current_user)):
+async def logout(request: Request ,current_user = Depends(get_current_user)):
     """User logout - invalidate all sessions"""
+
+    # Get token from request
+    authorization = request.headers.get("Authorization")
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        
+        # Decode to get JTI (JWT ID) and expiration
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            jti = payload.get("jti")  # You need to add JTI to your token creation
+            exp = payload.get("exp")
+            
+            # Add to blacklist
+            await prisma.tokenblacklist.create(
+                data={
+                    "tokenJti": jti,
+                    "expiresAt": datetime.fromtimestamp(exp, timezone.utc)
+                }
+            )
+        except jwt.InvalidTokenError:
+            pass
+    
     await prisma.usersession.delete_many(
         where={"userId": current_user.id}
     )
@@ -390,38 +419,3 @@ async def confirm_password_reset(request: PasswordResetConfirm):
     await prisma.usersession.delete_many(where={"userId": user.id})
     
     return {"message": "Password reset successful"}
-
-# # ===== ADMIN ROUTES =====
-# @router.get("/users")
-# async def list_users(
-#     current_user = Depends(get_current_user),
-#     skip: int = 0,
-#     limit: int = 100
-# ):
-#     """List users (admin only)"""
-#     if current_user.userType != UserType.ADMIN:
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN,
-#             detail="Admin access required"
-#         )
-    
-#     users = await prisma.user.find_many(
-#         skip=skip,
-#         take=limit,
-#         include={
-#             "creator": True,
-#             "company": True,
-#             "admin": True,
-#         }
-#     )
-    
-#     return {
-#         "users": [format_user_response(user) for user in users],
-#         "total": len(users)
-#     }
-
-# @router.get("/permissions")
-# async def get_user_permissions(current_user: User = Depends(get_current_user)):
-#     # Return user's permissions when needed
-#     permissions = get_user_permissions(current_user.id)
-#     return [perm.name for perm in permissions]

@@ -3,6 +3,7 @@
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
@@ -24,6 +25,15 @@ model UserSession {
   @@map("user_sessions")
 }
 
+model TokenBlacklist {
+  id        String   @id @default(cuid())
+  tokenJti  String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("token_blacklist")
+}
+
 // User
 model User {
   id                      String   @id @default(cuid())
@@ -33,6 +43,8 @@ model User {
   firstName               String
   lastName                String
   avatar                  String?
+   phone                  String?
+  location                String?
   userType                UserType
   isActive                Boolean  @default(true)
   isVerified              Boolean  @default(false)

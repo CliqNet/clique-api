@@ -31,7 +31,6 @@ async def get_creators(
     # check_admin_permission(current_user, AdminRole.ADMIN)
     # return await fetch_users_by_type(UserType.CREATOR, page, limit)
 
-    print("I get here")
     try:
         return await fetch_users_by_type(UserType.CREATOR, page, limit)
     except Exception as e:
@@ -103,7 +102,6 @@ async def get_users(
         )
     )
 
-
 @router.get("/{user_id}", response_model=User)
 async def get_user(
     user_id: str,
@@ -172,7 +170,6 @@ async def get_user_by_username(
         check_admin_permission(current_user)
     
     return format_user_response(user, includeProfiles)
-
 
 @router.post("", response_model=UserWithProfilesResponse)
 async def create_user(
@@ -268,8 +265,132 @@ async def create_user(
     
     return format_user_response(user_with_profile)
 
+# @router.put("/{user_id}", response_model=UserWithProfilesResponse)
+# async def update_user(
+#     user_id: str,
+#     user_data: UpdateUserRequest,
+#     current_user = Depends(get_current_user)
+# ):
+#     """Update user (full update)"""
+#     # Users can update their own profile, admins can update any profile
+#     if current_user.id != user_id:
+#         check_admin_permission(current_user)
+    
+#     # Check if user exists
+#     existing_user = await prisma.user.find_unique(where={"id": user_id})
+#     if not existing_user:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="User not found"
+#         )
+    
+#     # Check for email/username conflicts (excluding current user)
+#     if user_data.email or user_data.username:
+#         conflicts = []
+#         if user_data.email:
+#             conflicts.append({"email": user_data.email})
+#         if user_data.username:
+#             conflicts.append({"username": user_data.username})
+        
+#         conflicting_user = await prisma.user.find_first(
+#             where={
+#                 "AND": [
+#                     {"id": {"not": user_id}},
+#                     {"OR": conflicts}
+#                 ]
+#             }
+#         )
+        
+#         if conflicting_user:
+#             if conflicting_user.email == user_data.email:
+#                 raise HTTPException(
+#                     status_code=status.HTTP_400_BAD_REQUEST,
+#                     detail="Email already in use"
+#                 )
+#             else:
+#                 raise HTTPException(
+#                     status_code=status.HTTP_400_BAD_REQUEST,
+#                     detail="Username already taken"
+#                 )
+    
+#     # Prepare update data
+#     update_data = {}
+#     for field in ["email", "username", "firstName", "lastName", "status", "isVerified"]:
+#         value = getattr(user_data, field, None)
+#         if value is not None:
+#             update_data[field] = value
+    
+#     # Handle password update
+#     if user_data.password:
+#         update_data["password"] = hash_password(user_data.password)
+    
+#     # Update user
+#     updated_user = await prisma.user.update(
+#         where={"id": user_id},
+#         data=update_data,
+#         include={
+#             "creator": True,
+#             "company": True,
+#             "admin": True
+#         }
+#     )
+    
+#     # Update profile if provided
+#     if existing_user.userType == UserType.CREATOR and any([
+#         user_data.bio is not None,
+#         user_data.niche is not None,
+#         user_data.plan is not None
+#     ]):
+#         profile_update = {}
+#         if user_data.bio is not None:
+#             profile_update["bio"] = user_data.bio
+#         if user_data.niche is not None:
+#             profile_update["niche"] = user_data.niche
+#         if user_data.plan is not None:
+#             profile_update["plan"] = user_data.plan
+        
+#         await prisma.creatorprofile.update(
+#             where={"userId": user_id},
+#             data=profile_update
+#         )
+    
+#     elif existing_user.userType == UserType.COMPANY and any([
+#         user_data.companyName is not None,
+#         user_data.industry is not None,
+#         user_data.website is not None,
+#         user_data.description is not None,
+#         user_data.plan is not None
+#     ]):
+#         profile_update = {}
+#         if user_data.companyName is not None:
+#             profile_update["companyName"] = user_data.companyName
+#         if user_data.industry is not None:
+#             profile_update["industry"] = user_data.industry
+#         if user_data.website is not None:
+#             profile_update["website"] = user_data.website
+#         if user_data.description is not None:
+#             profile_update["description"] = user_data.description
+#         if user_data.plan is not None:
+#             profile_update["plan"] = user_data.plan
+        
+#         await prisma.companyprofile.update(
+#             where={"userId": user_id},
+#             data=profile_update
+#         )
+    
+#     # Get updated user with profile
+#     final_user = await prisma.user.find_unique(
+#         where={"id": user_id},
+#         include={
+#             "creator": True,
+#             "company": True,
+#             "admin": True
+#         }
+#     )
+    
+#     return format_user_response(final_user)
 
-@router.put("/{user_id}", response_model=UserWithProfilesResponse)
+@router.put("/{user_id}")
 async def update_user(
     user_id: str,
     user_data: UpdateUserRequest,
@@ -280,15 +401,11 @@ async def update_user(
     if current_user.id != user_id:
         check_admin_permission(current_user)
     
-    # Check if user exists
     existing_user = await prisma.user.find_unique(where={"id": user_id})
     if not existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     
-    # Check for email/username conflicts (excluding current user)
+    # Email/username conflict check (unchanged)
     if user_data.email or user_data.username:
         conflicts = []
         if user_data.email:
@@ -304,96 +421,76 @@ async def update_user(
                 ]
             }
         )
-        
         if conflicting_user:
             if conflicting_user.email == user_data.email:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already in use"
-                )
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use")
             else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Username already taken"
-                )
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already taken")
     
-    # Prepare update data
+    # Prepare update data for user fields
     update_data = {}
-    for field in ["email", "username", "firstName", "lastName", "status", "isVerified"]:
+    for field in ["email", "username", "firstName", "lastName", "status", "isVerified", "phone", "location"]:
         value = getattr(user_data, field, None)
         if value is not None:
             update_data[field] = value
     
-    # Handle password update
-    if user_data.password:
+    # Password update (if you add password to UpdateUserRequest)
+    if hasattr(user_data, "password") and user_data.password:
         update_data["password"] = hash_password(user_data.password)
     
-    # Update user
     updated_user = await prisma.user.update(
         where={"id": user_id},
         data=update_data,
-        include={
-            "creator": True,
-            "company": True,
-            "admin": True
-        }
+        include={"creator": True, "company": True, "admin": True}
     )
     
-    # Update profile if provided
-    if existing_user.userType == UserType.CREATOR and any([
-        user_data.bio is not None,
-        user_data.niche is not None,
-        user_data.plan is not None
-    ]):
+    # Update profile data inside profileData (refactored)
+    if user_data.profileData:
         profile_update = {}
-        if user_data.bio is not None:
-            profile_update["bio"] = user_data.bio
-        if user_data.niche is not None:
-            profile_update["niche"] = user_data.niche
-        if user_data.plan is not None:
-            profile_update["plan"] = user_data.plan
+        profile = user_data.profileData
+
+        if existing_user.userType == UserType.CREATOR:
+            # Assuming profile is of type UpdateCreatorProfileData
+            if hasattr(profile, "bio") and profile.bio is not None:
+                profile_update["bio"] = profile.bio
+            if hasattr(profile, "niche") and profile.niche is not None:
+                profile_update["niche"] = profile.niche
+            if hasattr(profile, "plan") and profile.plan is not None:
+                profile_update["plan"] = profile.plan
+            
+            if profile_update:
+                await prisma.creatorprofile.update(
+                    where={"userId": user_id},
+                    data=profile_update
+                )
         
-        await prisma.creatorprofile.update(
-            where={"userId": user_id},
-            data=profile_update
-        )
-    
-    elif existing_user.userType == UserType.COMPANY and any([
-        user_data.companyName is not None,
-        user_data.industry is not None,
-        user_data.website is not None,
-        user_data.description is not None,
-        user_data.plan is not None
-    ]):
-        profile_update = {}
-        if user_data.companyName is not None:
-            profile_update["companyName"] = user_data.companyName
-        if user_data.industry is not None:
-            profile_update["industry"] = user_data.industry
-        if user_data.website is not None:
-            profile_update["website"] = user_data.website
-        if user_data.description is not None:
-            profile_update["description"] = user_data.description
-        if user_data.plan is not None:
-            profile_update["plan"] = user_data.plan
+        elif existing_user.userType == UserType.COMPANY:
+            # Assuming profile is of type UpdateCompanyProfileData
+            if hasattr(profile, "companyName") and profile.companyName is not None:
+                profile_update["companyName"] = profile.companyName
+            if hasattr(profile, "industry") and profile.industry is not None:
+                profile_update["industry"] = profile.industry
+            if hasattr(profile, "website") and profile.website is not None:
+                profile_update["website"] = profile.website
+            if hasattr(profile, "description") and profile.description is not None:
+                profile_update["description"] = profile.description
+            if hasattr(profile, "plan") and profile.plan is not None:
+                profile_update["plan"] = profile.plan
+
+            if profile_update:
+                await prisma.companyprofile.update(
+                    where={"userId": user_id},
+                    data=profile_update
+                )
         
-        await prisma.companyprofile.update(
-            where={"userId": user_id},
-            data=profile_update
-        )
+        # Add similar handling for admin profile if needed
     
-    # Get updated user with profile
     final_user = await prisma.user.find_unique(
         where={"id": user_id},
-        include={
-            "creator": True,
-            "company": True,
-            "admin": True
-        }
+        include={"creator": True, "company": True, "admin": True}
     )
     
     return format_user_response(final_user)
-
 
 @router.patch("/{user_id}", response_model=UserWithProfilesResponse)
 async def patch_user(
@@ -404,7 +501,6 @@ async def patch_user(
     """Partially update user"""
     # Same logic as PUT but only updates provided fields
     return await update_user(user_id, user_data, current_user)
-
 
 @router.delete("/{user_id}")
 async def delete_user(
@@ -437,7 +533,6 @@ async def delete_user(
     
     return {"message": "User deleted successfully"}
 
-
 @router.patch("/{user_id}/status", response_model=UserWithProfilesResponse)
 async def update_user_status(
     user_id: str,
@@ -464,7 +559,6 @@ async def update_user_status(
         )
     
     return format_user_response(user)
-
 
 @router.patch("/{user_id}/active", response_model=UserWithProfilesResponse)
 async def toggle_user_active(
@@ -493,7 +587,6 @@ async def toggle_user_active(
     
     return format_user_response(user)
 
-
 @router.patch("/{user_id}/verify", response_model=UserWithProfilesResponse)
 async def verify_user(
     user_id: str,
@@ -519,7 +612,6 @@ async def verify_user(
         )
     
     return format_user_response(user)
-
 
 @router.patch("/{user_id}/password")
 async def change_user_password(
@@ -550,7 +642,6 @@ async def change_user_password(
     await prisma.usersession.delete_many(where={"userId": user_id})
     
     return {"message": "Password changed successfully"}
-
 
 @router.post("/reset-password")
 async def reset_password(reset_data: ResetPasswordRequest):
@@ -790,3 +881,9 @@ async def bulk_update_users(
         failed=failed,
         totalProcessed=len(update_data.userIds)
     )
+
+# @router.get("/permissions")
+# async def get_user_permissions(current_user: User = Depends(get_current_user)):
+#     # Return user's permissions when needed
+#     permissions = get_user_permissions(current_user.id)
+#     return [perm.name for perm in permissions]

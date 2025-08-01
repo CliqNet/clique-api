@@ -13,7 +13,7 @@ import os
 import json
 import jwt
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret")
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret")
 
 
 # Pydantic models

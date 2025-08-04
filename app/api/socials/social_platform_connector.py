@@ -158,12 +158,14 @@ class SocialPlatformConnector:
             user_id, platform, token_data, user_info
         )
 
+        print("after after after")
+
         return {
             "success": True,
             "platform": platform.value,
             "username": user_info.get("username"),
-            "account_id": str(social_account.id),
-        }
+            # "account_id": str(social_account.id),
+            "account_id": str(social_account.get("id")) if isinstance(social_account, dict) else str(social_account.id),        }
 
     async def _exchange_code_for_tokens(
         self, platform: SocialPlatform, code: str, redirect_uri: str
@@ -259,6 +261,7 @@ class SocialPlatformConnector:
             where={"id": user_id}, include={"creator": True, "company": True}
         )
 
+        print("extracting id")
         creator_id = user.creator.id if user.creator else None
         company_id = user.company.id if user.company else None
 

@@ -59,11 +59,7 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    refresh_token: Optional[str] = None  # Optional for security
+
 
 
 class UserResponse(BaseModel):
@@ -82,6 +78,13 @@ class UserResponse(BaseModel):
     profile: Optional[dict] = None  # Creator/Company/Admin profile
     roles: Optional[List[dict]] = None
 
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    refresh_token: Optional[str] = None  # Optional for security
+    user: UserResponse
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr

@@ -43,7 +43,7 @@ model User {
   firstName               String
   lastName                String
   avatar                  String?
-   phone                  String?
+  phone                   String?
   location                String?
   userType                UserType
   isActive                Boolean  @default(true)

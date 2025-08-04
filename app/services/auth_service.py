@@ -51,7 +51,7 @@ async def login_user(request: LoginRequest):
     )
 
     # Create tokens
-    access_token = create_access_token({"sub": user.id})
+    access_token = create_access_token({"sub": user.id, "userType": user.userType})
     refresh_token = create_refresh_token(user.id)
 
     # Store session

@@ -52,24 +52,34 @@ class SocialPlatformConnector:
         """Generate OAuth authorization URL for a platform"""
         state = secrets.token_urlsafe(32)
 
-        print(f"Generated state: {state}")  # Debug line
-
         # Validate that state was generated
         if not state:
             raise ValueError("Failed to generate state token")
+        
+        # For Twitter, generate and store PKCE verifier
+        code_verifier = None
+        code_challenge = None
+        
+        if platform == SocialPlatform.TWITTER:
+            code_verifier = secrets.token_urlsafe(32)
+            code_challenge = self._generate_pkce_challenge(code_verifier)
+
         try:
 
-            oauth_state_record = await self.db.oauthstate.create(
-                data={
-                    "state": state,
-                    "userId": user_id,
-                    "platform": platform.value,
-                }
-            )
+             # Store state and code_verifier for Twitter
+            oauth_data = {
+                "state": state,
+                "userId": user_id,
+                "platform": platform.value,
+            }
+            
+            # Add code_verifier for Twitter
+            if code_verifier:
+                oauth_data["codeVerifier"] = code_verifier 
+                
+            await self.db.oauthstate.create(data=oauth_data)
 
-            print(f"Created OAuth state record: {oauth_state_record.id}")  # Debug line
         except Exception as e:
-            print(f"Failed to create OAuth state: {e}")
             raise ValueError(f"Failed to store OAuth state: {str(e)}")
 
         config = self.platform_configs.get(platform.value)
@@ -103,7 +113,7 @@ class SocialPlatformConnector:
         }
 
         if platform == SocialPlatform.TWITTER:
-            params["code_challenge"] = self._generate_pkce_challenge()
+            params["code_challenge"] = code_challenge
             params["code_challenge_method"] = "S256"
 
         return f"{base_urls[platform]}?{urlencode(params)}"
@@ -112,17 +122,10 @@ class SocialPlatformConnector:
         self, code: str, state: str, redirect_uri: str
     ) -> Dict[str, Any]:
         """Handle OAuth callback and exchange code for tokens"""
-        print("ooooooooooooooooooooooooooooooooooo")
         # Validate state
         oauth_state = await self.db.oauthstate.find_unique(where={"state": state})
         if not oauth_state:
             raise ValueError("Invalid or expired state parameter")
-        print("STATE STATE STATE STATE STATE")
-        print("STATE: ", oauth_state)
-
-        # if (datetime.utcnow() - oauth_state.createdAt) > timedelta(minutes=10):  # 10 minutes expiry
-        #     await self.db.oauthstate.delete(where={'state': state})
-        #     raise ValueError("State parameter expired")
 
         from datetime import datetime, timezone
 
@@ -133,42 +136,33 @@ class SocialPlatformConnector:
             await self.db.oauthstate.delete(where={"state": state})
             raise ValueError("State parameter expired")
 
-        print("DELETE state")
-
         # 3. Clean up state (delete after use)
         await self.db.oauthstate.delete(where={"state": state})
-        print("deleted state")
 
         platform = SocialPlatform(oauth_state.platform)
         user_id = oauth_state.userId
-        print("xxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+
         # Exchange code for tokens
         token_data = await self._exchange_code_for_tokens(platform, code, redirect_uri)
 
-        print("dododododododoododoododoodood")
         # Get user info from platform
         user_info = await self._get_platform_user_info(
             platform, token_data["access_token"]
         )
-
-        print("555555555555555555")
 
         # Store or update social account
         social_account = await self._create_or_update_social_account(
             user_id, platform, token_data, user_info
         )
 
-        print("after after after")
-
         return {
             "success": True,
             "platform": platform.value,
             "username": user_info.get("username"),
-            # "account_id": str(social_account.id),
             "account_id": str(social_account.get("id")) if isinstance(social_account, dict) else str(social_account.id),        }
 
     async def _exchange_code_for_tokens(
-        self, platform: SocialPlatform, code: str, redirect_uri: str
+        self, platform: SocialPlatform, code: str, redirect_uri: str, oauth_state=None
     ) -> Dict[str, Any]:
         """Exchange authorization code for access tokens"""
         config = self.platform_configs[platform.value]
@@ -189,6 +183,13 @@ class SocialPlatformConnector:
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }
+
+
+        # Add PKCE verifier for Twitter
+        if platform == SocialPlatform.TWITTER and oauth_state and oauth_state.codeVerifier:
+            data["code_verifier"] = oauth_state.codeVerifier
+            # Twitter doesn't need client_secret with PKCE
+            del data["client_secret"]
 
         async with httpx.AsyncClient() as client:
             if platform in [SocialPlatform.INSTAGRAM, SocialPlatform.FACEBOOK]:
@@ -471,6 +472,9 @@ class SocialPlatformConnector:
 
     def _generate_pkce_challenge(self) -> str:
         """Generate PKCE challenge for Twitter OAuth"""
+        if not code_verifier:
+            code_verifier = secrets.token_urlsafe(32)
+
         code_verifier = secrets.token_urlsafe(32)
         code_challenge = hashlib.sha256(code_verifier.encode()).digest()
         return code_challenge.hex()

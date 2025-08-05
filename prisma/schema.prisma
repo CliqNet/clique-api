@@ -152,6 +152,25 @@ model SocialAccount {
   isExpired       Boolean @default(false) // Manual expiry flag
   errorCount      Int @default(0) // Track API errors
   lastError       String?       // Last error message
+
+  // User profile data
+  displayName     String?
+  avatar          String?
+  bio             String?
+  website         String?
+  location        String?
+  
+  // Follower/engagement metrics
+  followers       Int           @default(0)
+  following       Int           @default(0)
+  posts           Int           @default(0)
+  avgEngagement   Float         @default(0.0)
+  
+  // Sync tracking
+  lastSyncAt      DateTime?
+  syncStatus      SyncStatus    @default(PENDING)
+  syncError       String?
+  nextSyncAt      DateTime?
   
   // Rate limiting
   dailyApiCalls   Int @default(0) // Track usage
@@ -252,6 +271,12 @@ enum AccountStatus {
   DEACTIVATED
 }
 
+enum SyncStatus {
+  PENDING
+  SYNCING
+  COMPLETED
+  FAILED
+}
 
 enum UserType {
   CREATOR

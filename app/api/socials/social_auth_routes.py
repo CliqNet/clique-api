@@ -1,12 +1,13 @@
 # app/api/socials/social_auth_routes.py
 
-from fastapi import APIRouter, HTTPException, Query, Depends, WebSocket
+from fastapi import APIRouter, HTTPException, Query, Depends, WebSocket, BackgroundTasks
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from prisma import Prisma
 from app.api.auth.auth import get_current_user
 from .social_platform_connector import SocialPlatformConnector, SocialPlatform
+from .social_data_fetcher import SocialDataFetcher
 from ...services.notification_service import notification_service
 from ...services.websocket_manager import connection_manager
 import os
@@ -33,14 +34,28 @@ class SocialAccountResponse(BaseModel):
     id: str
     platform: str
     username: str
+    displayName: Optional[str]
+    avatar: Optional[str]
+    followers: int
+    following: int
+    posts: int
+    avgEngagement: float
     status: str
     connected_at: str
     last_sync: Optional[str]
     expires_at: Optional[str]
+    sync_status: Optional[str]
 
 
 class DisconnectAccountRequest(BaseModel):
     account_id: str
+
+class SyncAccountRequest(BaseModel):
+    account_id: str
+
+
+class BulkSyncRequest(BaseModel):
+    account_ids: Optional[List[str]] = None  # If None, sync all user's accounts
 
 
 # Initialize router
@@ -61,6 +76,10 @@ async def get_connector(db: Prisma = Depends(get_database)):
     connector = SocialPlatformConnector(db)
     await connector.initialize()
     return connector
+
+async def get_data_fetcher(db: Prisma = Depends(get_database)):
+    return SocialDataFetcher(db)
+
 
 
 @router.post("/connect")
@@ -95,7 +114,9 @@ async def oauth_callback(
     code: str = Query(...),
     state: str = Query(...),
     error: Optional[str] = Query(None),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     connector: SocialPlatformConnector = Depends(get_connector),
+    data_fetcher: SocialDataFetcher = Depends(get_data_fetcher),
 ):
     """Handle OAuth callback from social platforms"""
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
@@ -106,15 +127,18 @@ async def oauth_callback(
         )
     try:
         # Get redirect URI from environment or config
-        # redirect_uri = os.getenv("OAUTH_REDIRECT_URI", "http://localhost:8000/creator/accounts")
         redirect_uri = f"{os.getenv('API_BASE_URL', 'http://127.0.0.1:8000')}/api/v1/social/callback"
 
-        print("1234567890")
         result = await connector.handle_oauth_callback(
             code=code, state=state, redirect_uri=redirect_uri
         )
-        print("09876543221")
-        print("RESULTS: ", result)
+
+        # Schedule background task to fetch user data
+        background_tasks.add_task(
+            sync_account_after_connection, 
+            result.get("account_id"), 
+            data_fetcher
+        )
 
         # Notify via WebSocket about successful connection
         await notification_service.notify_oauth_completed(
@@ -149,21 +173,208 @@ async def oauth_callback(
             status_code=500, detail=f"Callback processing failed: {str(e)}"
         )
 
+async def sync_account_after_connection(account_id: str, data_fetcher: SocialDataFetcher):
+    """Background task to sync account data after successful connection"""
+    try:
+        # Wait a bit for the connection to be fully established
+        import asyncio
+        await asyncio.sleep(5)
+        
+        success = await data_fetcher.sync_account_data(account_id)
+        print(f"Account {account_id} sync {'successful' if success else 'failed'}")
+    except Exception as e:
+        print(f"Error syncing account {account_id}: {str(e)}")
+
+
+@router.post("/sync")
+async def sync_account(
+    request: SyncAccountRequest,
+    background_tasks: BackgroundTasks,
+    current_user=Depends(get_current_user),
+    data_fetcher: SocialDataFetcher = Depends(get_data_fetcher),
+):
+    """Manually sync a specific social media account"""
+    try:
+        # Verify account belongs to user
+        db = data_fetcher.db
+        account = await db.socialaccount.find_unique(
+            where={"id": request.account_id}
+        )
+        
+        if not account or account.userId != current_user.id:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Add sync task to background
+        background_tasks.add_task(
+            data_fetcher.sync_account_data, 
+            request.account_id
+        )
+        
+        return {
+            "success": True, 
+            "message": "Sync started", 
+            "account_id": request.account_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
+@router.get("/sync/status/{account_id}")
+async def get_sync_status(
+    account_id: str,
+    current_user=Depends(get_current_user),
+    db: Prisma = Depends(get_database),
+):
+    """Get sync status for a specific account"""
+    try:
+        account = await db.socialaccount.find_unique(
+            where={"id": account_id}
+        )
+        
+        if not account or account.userId != current_user.id:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        return {
+            "account_id": account_id,
+            "platform": account.platform,
+            "sync_status": account.syncStatus,
+            "last_sync": account.lastSyncAt.isoformat() if account.lastSyncAt else None,
+            "next_sync": account.nextSyncAt.isoformat() if account.nextSyncAt else None,
+            "sync_error": account.syncError,
+            "followers": account.followers,
+            "engagement": account.avgEngagement
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Status check failed: {str(e)}")
+
+
+@router.get("/analytics/summary")
+async def get_analytics_summary(
+    current_user=Depends(get_current_user),
+    db: Prisma = Depends(get_database),
+):
+    """Get analytics summary across all connected platforms"""
+    try:
+        accounts = await db.socialaccount.find_many(
+            where={"userId": current_user.id, "isActive": True}
+        )
+        
+        total_followers = sum(account.followers for account in accounts)
+        total_following = sum(account.following for account in accounts)
+        total_posts = sum(account.posts for account in accounts)
+        avg_engagement = (
+            sum(account.avgEngagement for account in accounts) / len(accounts)
+            if accounts else 0
+        )
+        
+        platform_breakdown = {}
+        for account in accounts:
+            platform_breakdown[account.platform] = {
+                "followers": account.followers,
+                "engagement": account.avgEngagement,
+                "posts": account.posts,
+                "last_sync": account.lastSyncAt.isoformat() if account.lastSyncAt else None
+            }
+        return {
+            "summary": {
+                "total_followers": total_followers,
+                "total_following": total_following,
+                "total_posts": total_posts,
+                "avg_engagement": round(avg_engagement, 2),
+                "connected_platforms": len(accounts)
+            },
+            "platforms": platform_breakdown,
+            "last_updated": max(
+                (account.lastSyncAt for account in accounts if account.lastSyncAt),
+                default=None
+            )
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analytics failed: {str(e)}")
+
+
+# Background task endpoints (for cron jobs or scheduled tasks)
+@router.post("/admin/sync-all")
+async def admin_sync_all_accounts(
+    background_tasks: BackgroundTasks,
+    data_fetcher: SocialDataFetcher = Depends(get_data_fetcher),
+):
+    """Admin endpoint to sync all accounts that are due for sync"""
+    try:
+        background_tasks.add_task(data_fetcher.sync_all_accounts)
+        return {"success": True, "message": "Bulk sync started for all due accounts"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Admin sync failed: {str(e)}")
+
+
+
+# @router.get("/accounts")
+# async def get_connected_accounts(
+#     current_user=Depends(get_current_user),
+#     connector: SocialPlatformConnector = Depends(get_connector),
+# ) -> dict:
+#     """Get all connected social accounts for the current user"""
+#     try:
+#         accounts = await connector.get_user_accounts(current_user.id)
+#         return {"accounts": accounts}  # <-- wrap in object
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500, detail=f"Failed to fetch accounts: {str(e)}"
+#         )
 
 @router.get("/accounts")
 async def get_connected_accounts(
     current_user=Depends(get_current_user),
     connector: SocialPlatformConnector = Depends(get_connector),
 ) -> dict:
-    """Get all connected social accounts for the current user"""
+    """Get all connected social accounts for the current user with detailed info"""
     try:
-        accounts = await connector.get_user_accounts(current_user.id)
-        return {"accounts": accounts}  # <-- wrap in object
+        # Get accounts with additional fields
+        db = connector.db
+        accounts = await db.socialaccount.find_many(
+            where={"userId": current_user.id, "isActive": True},
+            include={
+                "creator": True,
+                "company": True
+            }
+        )
+        
+        formatted_accounts = []
+        for account in accounts:
+            formatted_accounts.append({
+                "id": account.id,
+                "platform": account.platform,
+                "username": account.username,
+                "displayName": account.displayName,
+                "avatar": account.avatar,
+                "bio": account.bio,
+                "website": account.website,
+                "location": account.location,
+                "followers": account.followers,
+                "following": account.following,
+                "posts": account.posts,
+                "avgEngagement": account.avgEngagement,
+                "status": account.status,
+                "syncStatus": account.syncStatus,
+                "connected_at": account.createdAt.isoformat(),
+                "last_sync": account.lastSyncAt.isoformat() if account.lastSyncAt else None,
+                "next_sync": account.nextSyncAt.isoformat() if account.nextSyncAt else None,
+                "expires_at": account.expiresAt.isoformat() if account.expiresAt else None,
+                "sync_error": account.syncError
+            })
+        return {"accounts": formatted_accounts}
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch accounts: {str(e)}"
         )
-
+    
 
 @router.post("/disconnect")
 async def disconnect_account(

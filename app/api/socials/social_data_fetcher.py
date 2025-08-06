@@ -122,6 +122,9 @@ class SocialDataFetcher:
                     
             except:
                 pass  # Use default 0.0 if insights fail
+
+            print("In Facebook fetcher.")
+            print("Data: ", data)
             
             return {
                 "displayName": data.get("name"),

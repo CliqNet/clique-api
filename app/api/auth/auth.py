@@ -38,7 +38,7 @@ async def get_current_user_info(current_user=Depends(get_current_user)):
 @router.post("/logout")
 async def logout(request: Request, current_user=Depends(get_current_user)):
     """User logout - invalidate all sessions"""
-    return await auth_service.login_user(request, current_user)
+    return await auth_service.logout_user(request, current_user)
 
 
 

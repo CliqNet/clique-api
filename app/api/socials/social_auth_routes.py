@@ -1,11 +1,12 @@
 # app/api/socials/social_auth_routes.py
 
-from fastapi import APIRouter, HTTPException, Query, Depends, WebSocket, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, Depends, WebSocket, BackgroundTasks, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional, List
 from prisma import Prisma
 from app.api.auth.auth import get_current_user
+from app.models.user import User
 from .social_platform_connector import SocialPlatformConnector, SocialPlatform
 from .social_data_fetcher import SocialDataFetcher
 from ...services.notification_service import notification_service
@@ -21,6 +22,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret")
 class ConnectPlatformRequest(BaseModel):
     platform: str
     redirect_uri: str
+    mobile_redirect_uri: Optional[str] = None  # For mobile apps to specify deep link
 
 
 class OAuthCallbackRequest(BaseModel):
@@ -91,11 +93,22 @@ async def initiate_platform_connection(
     """Initiate OAuth connection to a social platform"""
     try:
         platform = SocialPlatform(request.platform.upper())
-        oauth_url = await connector.generate_oauth_url(
-            platform=platform,
-            user_id=current_user.id,
-            redirect_uri=request.redirect_uri,
-        )
+        
+        # Check if mobile redirect URI is provided
+        if request.mobile_redirect_uri and request.mobile_redirect_uri.startswith(("exp://", "exps://", "myapp://", "clique://", "com.yourcompany.yourapp://")):
+            print(f"DEBUG: Mobile OAuth initiated with redirect: {request.mobile_redirect_uri}")
+            oauth_url = await connector.generate_oauth_url_with_mobile_redirect(
+                platform=platform,
+                user_id=current_user.id,
+                redirect_uri=request.redirect_uri,  # Backend redirect URI
+                mobile_redirect_uri=request.mobile_redirect_uri,  # Mobile deep link
+            )
+        else:
+            oauth_url = await connector.generate_oauth_url(
+                platform=platform,
+                user_id=current_user.id,
+                redirect_uri=request.redirect_uri,
+            )
 
         # Notify via WebSocket
         await notification_service.notify_oauth_started(
@@ -111,6 +124,7 @@ async def initiate_platform_connection(
 
 @router.get("/callback")
 async def oauth_callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(...),
     error: Optional[str] = Query(None),
@@ -122,11 +136,23 @@ async def oauth_callback(
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
     if error:
-        return RedirectResponse(
-            url=f"{frontend_url}/creator/accounts?error={error}", status_code=302
-        )
+        # Handle mobile app error callback
+        referer = str(request.headers.get("referer", ""))
+        print(f"DEBUG: OAuth error, referer = '{referer}', error = '{error}'")
+        
+        if any(scheme in referer for scheme in ["exp://", "exps://", "myapp://", "clique://"]):
+            if "exp://" in referer or "exps://" in referer:
+                mobile_error_url = f"exp://192.168.0.22:8081/--/social/callback?error={error}"
+            else:
+                mobile_error_url = f"clique://auth/callback?error={error}"
+            print(f"DEBUG: Mobile error redirect: {mobile_error_url}")
+            return RedirectResponse(url=mobile_error_url, status_code=302)
+        
+        web_error_url = f"{frontend_url}/creator/accounts?error={error}"
+        print(f"DEBUG: Web error redirect: {web_error_url}")
+        return RedirectResponse(url=web_error_url, status_code=302)
     try:
-        # Get redirect URI from environment or config
+        # Get redirect URI as fallback (for compatibility with existing oauth states)
         redirect_uri = f"{os.getenv('API_BASE_URL', 'http://127.0.0.1:8000')}/api/v1/social/callback"
 
         result = await connector.handle_oauth_callback(
@@ -136,8 +162,7 @@ async def oauth_callback(
         # Schedule background task to fetch user data
         background_tasks.add_task(
             sync_account_after_connection, 
-            result.get("account_id"), 
-            data_fetcher
+            result.get("account_id")
         )
 
         # Notify via WebSocket about successful connection
@@ -145,11 +170,50 @@ async def oauth_callback(
             result.get("user_id"), result["platform"], True, result.get("account_data")
         )
 
-        # Redirect to frontend with success message
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-        return RedirectResponse(
-            url=f"{frontend_url}/creator/accounts?success=true&platform={result['platform']}"
-        )
+        # Check if this is a mobile app callback (custom scheme)
+        stored_redirect_uri = result.get("stored_redirect_uri", "")
+        mobile_redirect_uri = result.get("mobile_redirect_uri")
+        print(f"DEBUG: stored_redirect_uri = '{stored_redirect_uri}'")
+        print(f"DEBUG: mobile_redirect_uri = '{mobile_redirect_uri}'")
+        print(f"DEBUG: result keys = {list(result.keys())}")
+        
+        # Use mobile redirect URI from OAuth state if available
+        if mobile_redirect_uri and mobile_redirect_uri.startswith(("exp://", "exps://", "myapp://", "clique://", "com.yourcompany.yourapp://")):
+            # Mobile app callback - use the stored mobile redirect URI
+            mobile_redirect_url = f"{mobile_redirect_uri.split('?')[0]}?success=true&platform={result['platform']}&account_id={result.get('account_id')}"
+            print(f"DEBUG: Redirecting to mobile app (from state): {mobile_redirect_url}")
+            return RedirectResponse(url=mobile_redirect_url)
+        
+        # Fallback: check for mobile app schemes in stored redirect URI or request headers
+        is_mobile_app = False
+        mobile_redirect_url = None
+        
+        if stored_redirect_uri.startswith(("exp://", "exps://", "myapp://", "clique://", "com.yourcompany.yourapp://")):
+            is_mobile_app = True
+            # Use the stored redirect URI but with success params
+            mobile_redirect_url = f"{stored_redirect_uri.split('?')[0]}?success=true&platform={result['platform']}&account_id={result.get('account_id')}"
+        
+        # Also check referer header as fallback for mobile detection
+        referer = str(request.headers.get("referer", ""))
+        print(f"DEBUG: referer = '{referer}'")
+        
+        if not is_mobile_app and any(scheme in referer for scheme in ["exp://", "exps://", "myapp://", "clique://"]):
+            is_mobile_app = True
+            # For Expo apps, use exp:// scheme with success callback
+            if "exp://" in referer or "exps://" in referer:
+                mobile_redirect_url = f"{os.getenv('EXPO_URL', 'exp://192.168.0.22:8081')}/--/social/callback?success=true&platform=" + result['platform']
+            else:
+                mobile_redirect_url = f"clique://auth/callback?success=true&platform={result['platform']}&account_id={result.get('account_id')}"
+        
+        if is_mobile_app and mobile_redirect_url:
+            print(f"DEBUG: Redirecting to mobile app (fallback): {mobile_redirect_url}")
+            return RedirectResponse(url=mobile_redirect_url)
+        else:
+            # Web app callback - redirect to frontend
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+            web_redirect_url = f"{frontend_url}/creator/accounts?success=true&platform={result['platform']}"
+            print(f"DEBUG: Redirecting to web app: {web_redirect_url}")
+            return RedirectResponse(url=web_redirect_url)
 
     except ValueError as e:
 
@@ -166,22 +230,62 @@ async def oauth_callback(
         except:
             pass
 
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-        return RedirectResponse(url=f"{frontend_url}/creator/accounts?error={str(e)}")
+        # Handle mobile app error callback for value errors too
+        error_redirect_url = None
+        
+        # Check referer for mobile app
+        referer = str(request.headers.get("referer", ""))
+        if any(scheme in referer for scheme in ["exp://", "exps://", "myapp://", "clique://"]):
+            if "exp://" in referer or "exps://" in referer:
+                error_redirect_url = "exp://192.168.0.22:8081/--/social/callback?error=" + str(e)
+            else:
+                error_redirect_url = f"clique://auth/callback?error={str(e)}"
+        
+        # Try to get redirect URI from state as fallback
+        if not error_redirect_url:
+            try:
+                import base64
+                state_data = json.loads(base64.b64decode(state).decode())
+                redirect_uri = state_data.get("redirect_uri", "")
+                if redirect_uri.startswith(("exp://", "exps://", "myapp://", "clique://", "com.yourcompany.yourapp://")):
+                    error_redirect_url = f"{redirect_uri.split('?')[0]}?error={str(e)}"
+            except:
+                pass
+        
+        if error_redirect_url:
+            print(f"DEBUG: Error redirect to mobile: {error_redirect_url}")
+            return RedirectResponse(url=error_redirect_url)
+        else:
+            # Web app error callback
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+            web_error_url = f"{frontend_url}/creator/accounts?error={str(e)}"
+            print(f"DEBUG: Error redirect to web: {web_error_url}")
+            return RedirectResponse(url=web_error_url)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Callback processing failed: {str(e)}"
         )
 
-async def sync_account_after_connection(account_id: str, data_fetcher: SocialDataFetcher):
+async def sync_account_after_connection(account_id: str):
     """Background task to sync account data after successful connection"""
     try:
         # Wait a bit for the connection to be fully established
         import asyncio
         await asyncio.sleep(5)
         
-        success = await data_fetcher.sync_account_data(account_id)
-        print(f"Account {account_id} sync {'successful' if success else 'failed'}")
+        # Create new database connection for background task
+        db = Prisma()
+        await db.connect()
+        
+        try:
+            # Import here to avoid circular imports
+            from .social_data_fetcher import SocialDataFetcher
+            data_fetcher = SocialDataFetcher(db)
+            success = await data_fetcher.sync_account_data(account_id)
+            print(f"Account {account_id} sync {'successful' if success else 'failed'}")
+        finally:
+            await db.disconnect()
+            
     except Exception as e:
         print(f"Error syncing account {account_id}: {str(e)}")
 
@@ -549,3 +653,225 @@ async def get_current_user_ws(websocket: WebSocket, token: Optional[str] = Query
         await websocket.close(code=4001, reason="Authentication failed")
 
     return None
+
+
+# Facebook Page Management Endpoints
+
+@router.get("/facebook/pages")
+async def get_facebook_pages(
+    current_user: User = Depends(get_current_user),
+    db: Prisma = Depends(get_database)
+):
+    """Get all Facebook pages managed by the user"""
+    # Get user's Facebook account
+    facebook_account = await db.socialaccount.find_first(
+        where={"userId": current_user.id, "platform": "FACEBOOK", "isActive": True}
+    )
+    
+    if not facebook_account:
+        raise HTTPException(status_code=404, detail="No Facebook account connected")
+    
+    try:
+        from .facebook_data_fetcher import FacebookDataFetcher
+        fb_fetcher = FacebookDataFetcher(db)
+        pages = await fb_fetcher.get_user_pages(facebook_account.accessToken)
+        
+        return {
+            "success": True,
+            "pages": pages,
+            "total": len(pages)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch pages: {str(e)}")
+
+
+@router.post("/facebook/post")
+async def post_to_facebook_page(
+    request_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Prisma = Depends(get_database)
+):
+    """Post content to a Facebook page"""
+    page_id = request_data.get("page_id")
+    message = request_data.get("message")
+    link = request_data.get("link")
+    image_url = request_data.get("image_url")
+    
+    if not page_id or not message:
+        raise HTTPException(status_code=400, detail="page_id and message are required")
+    
+    # Get user's Facebook account
+    facebook_account = await db.socialaccount.find_first(
+        where={"userId": current_user.id, "platform": "FACEBOOK", "isActive": True}
+    )
+    
+    if not facebook_account:
+        raise HTTPException(status_code=404, detail="No Facebook account connected")
+    
+    try:
+        from .facebook_data_fetcher import FacebookDataFetcher
+        fb_fetcher = FacebookDataFetcher(db)
+        
+        # Get pages to find the page access token
+        pages = await fb_fetcher.get_user_pages(facebook_account.accessToken)
+        page = next((p for p in pages if p["id"] == page_id), None)
+        
+        if not page:
+            raise HTTPException(status_code=404, detail="Page not found or no access")
+        
+        # Post to the page
+        result = await fb_fetcher.post_to_page(
+            page_id=page_id,
+            page_access_token=page["access_token"],
+            message=message,
+            link=link,
+            image_url=image_url
+        )
+        
+        return {
+            "success": True,
+            "post_id": result.get("id"),
+            "message": "Post created successfully"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to post: {str(e)}")
+
+
+@router.post("/facebook/schedule")
+async def schedule_facebook_post(
+    request_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Prisma = Depends(get_database)
+):
+    """Schedule a post to Facebook page"""
+    page_id = request_data.get("page_id")
+    message = request_data.get("message")
+    scheduled_time = request_data.get("scheduled_time")  # Unix timestamp
+    link = request_data.get("link")
+    image_url = request_data.get("image_url")
+    
+    if not page_id or not message or not scheduled_time:
+        raise HTTPException(status_code=400, detail="page_id, message, and scheduled_time are required")
+    
+    # Get user's Facebook account
+    facebook_account = await db.socialaccount.find_first(
+        where={"userId": current_user.id, "platform": "FACEBOOK", "isActive": True}
+    )
+    
+    if not facebook_account:
+        raise HTTPException(status_code=404, detail="No Facebook account connected")
+    
+    try:
+        from .facebook_data_fetcher import FacebookDataFetcher
+        fb_fetcher = FacebookDataFetcher(db)
+        
+        # Get pages to find the page access token
+        pages = await fb_fetcher.get_user_pages(facebook_account.accessToken)
+        page = next((p for p in pages if p["id"] == page_id), None)
+        
+        if not page:
+            raise HTTPException(status_code=404, detail="Page not found or no access")
+        
+        # Schedule the post
+        result = await fb_fetcher.schedule_post(
+            page_id=page_id,
+            page_access_token=page["access_token"],
+            message=message,
+            scheduled_publish_time=int(scheduled_time),
+            link=link,
+            image_url=image_url
+        )
+        
+        return {
+            "success": True,
+            "post_id": result.get("id"),
+            "message": "Post scheduled successfully"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to schedule post: {str(e)}")
+
+
+@router.get("/facebook/posts/{page_id}")
+async def get_facebook_page_posts(
+    page_id: str,
+    limit: int = 10,
+    current_user: User = Depends(get_current_user),
+    db: Prisma = Depends(get_database)
+):
+    """Get recent posts from a Facebook page"""
+    # Get user's Facebook account
+    facebook_account = await db.socialaccount.find_first(
+        where={"userId": current_user.id, "platform": "FACEBOOK", "isActive": True}
+    )
+    
+    if not facebook_account:
+        raise HTTPException(status_code=404, detail="No Facebook account connected")
+    
+    try:
+        from .facebook_data_fetcher import FacebookDataFetcher
+        fb_fetcher = FacebookDataFetcher(db)
+        
+        # Get pages to find the page access token
+        pages = await fb_fetcher.get_user_pages(facebook_account.accessToken)
+        page = next((p for p in pages if p["id"] == page_id), None)
+        
+        if not page:
+            raise HTTPException(status_code=404, detail="Page not found or no access")
+        
+        # Get page posts
+        posts = await fb_fetcher.get_page_posts(
+            page_id=page_id,
+            page_access_token=page["access_token"],
+            limit=limit
+        )
+        
+        return {
+            "success": True,
+            "posts": posts,
+            "total": len(posts)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch posts: {str(e)}")
+
+
+@router.delete("/facebook/post/{post_id}")
+async def delete_facebook_post(
+    post_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Prisma = Depends(get_database)
+):
+    """Delete a Facebook post"""
+    # Get user's Facebook account
+    facebook_account = await db.socialaccount.find_first(
+        where={"userId": current_user.id, "platform": "FACEBOOK", "isActive": True}
+    )
+    
+    if not facebook_account:
+        raise HTTPException(status_code=404, detail="No Facebook account connected")
+    
+    try:
+        from .facebook_data_fetcher import FacebookDataFetcher
+        fb_fetcher = FacebookDataFetcher(db)
+        
+        # Get pages to find the appropriate page access token
+        pages = await fb_fetcher.get_user_pages(facebook_account.accessToken)
+        
+        # Try to delete with each page token (since we don't know which page the post belongs to)
+        for page in pages:
+            try:
+                success = await fb_fetcher.delete_post(post_id, page["access_token"])
+                if success:
+                    return {
+                        "success": True,
+                        "message": "Post deleted successfully"
+                    }
+            except:
+                continue
+        
+        raise HTTPException(status_code=404, detail="Post not found or no permission to delete")
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to delete post: {str(e)}")

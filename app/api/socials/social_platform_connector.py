@@ -66,11 +66,12 @@ class SocialPlatformConnector:
 
         try:
 
-             # Store state and code_verifier for Twitter
+             # Store state, redirect_uri and code_verifier for Twitter
             oauth_data = {
                 "state": state,
                 "userId": user_id,
                 "platform": platform.value,
+                "redirectUri": redirect_uri,  # Store redirect_uri in state
             }
             
             # Add code_verifier for Twitter
@@ -97,7 +98,7 @@ class SocialPlatformConnector:
 
         scopes = {
             SocialPlatform.INSTAGRAM: "user_profile,user_media",
-            SocialPlatform.FACEBOOK: "pages_show_list,pages_read_engagement,instagram_basic",
+            SocialPlatform.FACEBOOK: "public_profile,email,pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement,instagram_basic",
             SocialPlatform.YOUTUBE: "https://www.googleapis.com/auth/youtube.readonly",
             SocialPlatform.TWITTER: "tweet.read,users.read,follows.read",
             SocialPlatform.TIKTOK: "user.info.basic,video.list",
@@ -107,6 +108,79 @@ class SocialPlatformConnector:
         params = {
             "client_id": config["app_id"],
             "redirect_uri": redirect_uri,
+            "scope": scopes[platform],
+            "response_type": "code",
+            "state": state,
+        }
+
+        if platform == SocialPlatform.TWITTER:
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = "S256"
+
+        return f"{base_urls[platform]}?{urlencode(params)}"
+
+    async def generate_oauth_url_with_mobile_redirect(
+        self, platform: SocialPlatform, user_id: str, redirect_uri: str, mobile_redirect_uri: str
+    ) -> str:
+        """Generate OAuth URL with mobile redirect URI stored in state"""
+        state = secrets.token_urlsafe(32)
+
+        # Validate that state was generated
+        if not state:
+            raise ValueError("Failed to generate state token")
+        
+        # For Twitter, generate and store PKCE verifier
+        code_verifier = None
+        code_challenge = None
+        
+        if platform == SocialPlatform.TWITTER:
+            code_verifier = secrets.token_urlsafe(32)
+            code_challenge = self._generate_pkce_challenge(code_verifier)
+
+        try:
+            # Store state, redirect_uri, mobile_redirect_uri and code_verifier for Twitter
+            oauth_data = {
+                "state": state,
+                "userId": user_id,
+                "platform": platform.value,
+                "redirectUri": redirect_uri,  # Backend redirect URI for OAuth
+                "mobileRedirectUri": mobile_redirect_uri,  # Mobile app deep link
+            }
+            
+            # Add code_verifier for Twitter
+            if code_verifier:
+                oauth_data["codeVerifier"] = code_verifier 
+                
+            await self.db.oauthstate.create(data=oauth_data)
+
+        except Exception as e:
+            raise ValueError(f"Failed to store OAuth state: {str(e)}")
+
+        config = self.platform_configs.get(platform.value)
+        if not config or not config["is_active"]:
+            raise ValueError(f"Platform {platform.value} is not configured or inactive")
+
+        base_urls = {
+            SocialPlatform.INSTAGRAM: "https://api.instagram.com/oauth/authorize",
+            SocialPlatform.FACEBOOK: "https://www.facebook.com/v18.0/dialog/oauth",
+            SocialPlatform.YOUTUBE: "https://accounts.google.com/oauth2/v2/auth",
+            SocialPlatform.TWITTER: "https://twitter.com/i/oauth2/authorize",
+            SocialPlatform.TIKTOK: "https://www.tiktok.com/auth/authorize",
+            SocialPlatform.LINKEDIN: "https://www.linkedin.com/oauth/v2/authorization",
+        }
+
+        scopes = {
+            SocialPlatform.INSTAGRAM: "user_profile,user_media",
+            SocialPlatform.FACEBOOK: "public_profile,email,pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_engagement,instagram_basic",
+            SocialPlatform.YOUTUBE: "https://www.googleapis.com/auth/youtube.readonly",
+            SocialPlatform.TWITTER: "tweet.read,users.read,follows.read",
+            SocialPlatform.TIKTOK: "user.info.basic,video.list",
+            SocialPlatform.LINKEDIN: "r_liteprofile,r_emailaddress,w_member_social",
+        }
+
+        params = {
+            "client_id": config["app_id"],
+            "redirect_uri": redirect_uri,  # Still use backend redirect for OAuth
             "scope": scopes[platform],
             "response_type": "code",
             "state": state,
@@ -141,9 +215,13 @@ class SocialPlatformConnector:
 
         platform = SocialPlatform(oauth_state.platform)
         user_id = oauth_state.userId
+        
+        # Use redirect_uri from stored state to ensure consistency
+        # Fallback to passed redirect_uri for compatibility with existing records
+        stored_redirect_uri = oauth_state.redirectUri or redirect_uri
 
-        # Exchange code for tokens
-        token_data = await self._exchange_code_for_tokens(platform, code, redirect_uri)
+        # Exchange code for tokens using the same redirect_uri from state
+        token_data = await self._exchange_code_for_tokens(platform, code, stored_redirect_uri, oauth_state)
 
         # Get user info from platform
         user_info = await self._get_platform_user_info(
@@ -159,7 +237,11 @@ class SocialPlatformConnector:
             "success": True,
             "platform": platform.value,
             "username": user_info.get("username"),
-            "account_id": str(social_account.get("id")) if isinstance(social_account, dict) else str(social_account.id),        }
+            "user_id": user_id,
+            "account_id": str(social_account.get("id")) if isinstance(social_account, dict) else str(social_account.id),
+            "stored_redirect_uri": stored_redirect_uri,
+            "mobile_redirect_uri": oauth_state.mobileRedirectUri,  # Add mobile redirect URI to result
+        }
 
     async def _exchange_code_for_tokens(
         self, platform: SocialPlatform, code: str, redirect_uri: str, oauth_state=None
@@ -285,6 +367,7 @@ class SocialPlatformConnector:
             "platform": platform.value,
             "platformId": user_info["platform_id"],
             "username": user_info["username"],
+            "accountType": user_info.get("account_type"),  # Store account type for Facebook
             "accessToken": token_data["access_token"],
             "refreshToken": token_data.get("refresh_token"),
             "tokenType": token_data.get("token_type", "Bearer"),

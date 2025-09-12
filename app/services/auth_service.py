@@ -246,16 +246,17 @@ async def logout_user(request: Request, current_user=Depends(get_current_user)):
             payload = jwt.decode(
                 token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
             )
-            jti = payload.get("jti")  # You need to add JTI to your token creation
+            jti = payload.get("jti")
             exp = payload.get("exp")
 
-            # Add to blacklist
-            await prisma.tokenblacklist.create(
-                data={
-                    "tokenJti": jti,
-                    "expiresAt": datetime.fromtimestamp(exp, timezone.utc),
-                }
-            )
+            # Add to blacklist if jti exists
+            if jti and exp:
+                await prisma.tokenblacklist.create(
+                    data={
+                        "tokenJti": jti,
+                        "expiresAt": datetime.fromtimestamp(exp, timezone.utc),
+                    }
+                )
         except jwt.InvalidTokenError:
             pass
 

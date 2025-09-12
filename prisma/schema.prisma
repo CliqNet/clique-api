@@ -159,6 +159,7 @@ model SocialAccount {
   bio             String?
   website         String?
   location        String?
+  accountType     String?       // "user" or "page" for Facebook
   
   // Follower/engagement metrics
   followers       Int           @default(0)
@@ -256,11 +257,14 @@ model UserRole {
 }
 
 model OAuthState {
-  id        String   @id @default(uuid())
-  state     String   @unique
-  userId    String
-  platform  String
-  createdAt DateTime @default(now())
+  id                String   @id @default(uuid())
+  state             String   @unique
+  userId            String
+  platform          String
+  redirectUri       String?  // Store the redirect_uri to ensure consistency (optional for existing records)
+  mobileRedirectUri String?  // Mobile deep link for redirecting back to mobile app
+  codeVerifier      String?  // For PKCE (Twitter OAuth 2.0)
+  createdAt         DateTime @default(now())
 }
 
 // Enums

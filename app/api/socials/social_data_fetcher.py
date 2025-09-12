@@ -86,7 +86,8 @@ class SocialDataFetcher:
     
     async def _fetch_facebook_data(self, account) -> Dict[str, Any]:
         """Fetch Facebook/Meta data"""
-        fields = "id,name,picture.width(200).height(200),about,website,location,followers_count"
+        # Remove deprecated followers_count field - not available for personal profiles
+        fields = "id,name,picture.width(200).height(200),about,website,location"
         
         async with httpx.AsyncClient() as client:
             # Get basic profile
@@ -103,28 +104,55 @@ class SocialDataFetcher:
             
             data = response.json()
             
-            # Try to get page insights for engagement
+            # Try to get pages managed by user (for business accounts)
+            followers_count = 0
             engagement_rate = 0.0
+            
             try:
-                insights_response = await client.get(
-                    f"{self.platform_apis['FACEBOOK']}/{account.platformId}/insights",
+                # Check if user manages any pages
+                pages_response = await client.get(
+                    f"{self.platform_apis['FACEBOOK']}/me/accounts",
                     params={
-                        "metric": "page_engaged_users,page_fans",
-                        "period": "day",
+                        "fields": "id,name,fan_count",
                         "access_token": account.accessToken
                     }
                 )
                 
-                if insights_response.status_code == 200:
-                    insights = insights_response.json()
-                    # Calculate engagement rate from insights
-                    engagement_rate = self._calculate_facebook_engagement(insights)
+                if pages_response.status_code == 200:
+                    pages_data = pages_response.json()
+                    pages = pages_data.get("data", [])
                     
+                    if pages:
+                        # Use the first page's data (or find the matching page by ID)
+                        for page in pages:
+                            if page.get("id") == account.platformId:
+                                followers_count = page.get("fan_count", 0)
+                                break
+                        else:
+                            # If no matching page found, use first page
+                            followers_count = pages[0].get("fan_count", 0)
+                
+                # Try to get page insights for engagement if it's a page
+                if followers_count > 0:
+                    insights_response = await client.get(
+                        f"{self.platform_apis['FACEBOOK']}/{account.platformId}/insights",
+                        params={
+                            "metric": "page_engaged_users,page_fans",
+                            "period": "day",
+                            "access_token": account.accessToken
+                        }
+                    )
+                    
+                    if insights_response.status_code == 200:
+                        insights = insights_response.json()
+                        engagement_rate = self._calculate_facebook_engagement(insights)
+                        
             except:
-                pass  # Use default 0.0 if insights fail
+                pass  # Use defaults if pages/insights fail
 
             print("In Facebook fetcher.")
             print("Data: ", data)
+            print("Followers count: ", followers_count)
             
             return {
                 "displayName": data.get("name"),
@@ -132,7 +160,7 @@ class SocialDataFetcher:
                 "bio": data.get("about"),
                 "website": data.get("website"),
                 "location": data.get("location", {}).get("name") if data.get("location") else None,
-                "followers": data.get("followers_count", 0),
+                "followers": followers_count,  # Use page fan_count or 0 for personal profiles
                 "avgEngagement": engagement_rate
             }
     

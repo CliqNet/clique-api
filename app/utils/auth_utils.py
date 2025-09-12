@@ -1,6 +1,7 @@
 # app/api/auth/auth_utils.py
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import uuid
 from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import bcrypt
@@ -36,7 +37,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
             hours=settings.ACCESS_TOKEN_EXPIRE_HOURS
         )
 
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
     encoded_jwt = jwt.encode(
         to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
     )
@@ -48,7 +49,7 @@ def create_refresh_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
-    to_encode = {"sub": user_id, "exp": expire, "type": "refresh"}
+    to_encode = {"sub": user_id, "exp": expire, "type": "refresh", "jti": str(uuid.uuid4())}
     encoded_jwt = jwt.encode(
         to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
     )

@@ -2,7 +2,7 @@
 
 import httpx
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from prisma import Prisma
 
 
@@ -13,13 +13,15 @@ class FacebookDataFetcher:
     
     async def fetch_user_profile(self, access_token: str) -> Dict[str, Any]:
         """Fetch user profile data from Facebook"""
-        fields = "id,name,picture.width(200).height(200),about,website,location,followers_count"
+        # For Facebook Users - personal profiles don't have followers_count
+        user_fields = "id,name,email,picture.type(large),about,website,location"
         
         async with httpx.AsyncClient() as client:
+            # Get user profile
             response = await client.get(
                 f"{self.base_url}/me",
                 params={
-                    "fields": fields,
+                    "fields": user_fields,
                     "access_token": access_token
                 }
             )
@@ -27,17 +29,57 @@ class FacebookDataFetcher:
             if response.status_code != 200:
                 raise Exception(f"Facebook API error: {response.text}")
             
-            data = response.json()
+            user_data = response.json()
             
-            return {
-                "platform_id": data.get("id"),
-                "display_name": data.get("name"),
-                "avatar": data.get("picture", {}).get("data", {}).get("url"),
-                "bio": data.get("about"),
-                "website": data.get("website"),
-                "location": data.get("location", {}).get("name") if data.get("location") else None,
-                "followers": data.get("followers_count", 0)
-            }
+            # Try to get pages managed by this user
+            pages_data = await self.fetch_user_pages(access_token)
+            
+            # If user has pages, use the first page's data, otherwise use user data
+            if pages_data and len(pages_data) > 0:
+                # Use page data for business accounts
+                page = pages_data[0]  # Use first page
+                return {
+                    "platform_id": page.get("id"),
+                    "display_name": page.get("name"),
+                    "avatar": page.get("picture", {}).get("data", {}).get("url"),
+                    "bio": page.get("about"),
+                    "website": page.get("website"),
+                    "location": page.get("location", {}).get("name") if page.get("location") else None,
+                    "followers": page.get("fan_count", 0),
+                    "account_type": "page"
+                }
+            else:
+                # Personal profile - no follower count available
+                return {
+                    "platform_id": user_data.get("id"),
+                    "display_name": user_data.get("name"),
+                    "avatar": user_data.get("picture", {}).get("data", {}).get("url"),
+                    "bio": user_data.get("about"),
+                    "website": user_data.get("website"),
+                    "location": user_data.get("location", {}).get("name") if user_data.get("location") else None,
+                    "followers": 0,  # Personal profiles don't expose follower count
+                    "account_type": "user"
+                }
+    
+    async def fetch_user_pages(self, access_token: str) -> List[Dict[str, Any]]:
+        """Fetch pages managed by the user"""
+        page_fields = "id,name,fan_count,picture.type(large),category,about,website,location"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/me/accounts",
+                params={
+                    "fields": page_fields,
+                    "access_token": access_token
+                }
+            )
+            
+            if response.status_code != 200:
+                # If pages request fails, return empty list (user doesn't manage pages)
+                return []
+            
+            data = response.json()
+            return data.get("data", [])
     
     async def fetch_page_insights(self, page_id: str, access_token: str) -> Dict[str, Any]:
         """Fetch page insights for engagement metrics"""
@@ -166,3 +208,128 @@ class FacebookDataFetcher:
                 "avgEngagement": round(avg_engagement, 2)
             }
         )
+    
+    async def get_user_pages(self, access_token: str) -> List[Dict[str, Any]]:
+        """Get all pages managed by the user with their access tokens"""
+        page_fields = "id,name,fan_count,picture.type(large),category,about,website,location,access_token"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/me/accounts",
+                params={
+                    "fields": page_fields,
+                    "access_token": access_token
+                }
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f"Facebook API error getting pages: {response.text}")
+            
+            data = response.json()
+            return data.get("data", [])
+    
+    async def post_to_page(self, page_id: str, page_access_token: str, message: str, 
+                          link: str = None, image_url: str = None) -> Dict[str, Any]:
+        """Post content to a Facebook page"""
+        post_data = {
+            "message": message,
+            "access_token": page_access_token
+        }
+        
+        if link:
+            post_data["link"] = link
+        
+        async with httpx.AsyncClient() as client:
+            if image_url:
+                # Post with photo
+                photo_data = {
+                    "url": image_url,
+                    "message": message,
+                    "access_token": page_access_token
+                }
+                response = await client.post(
+                    f"{self.base_url}/{page_id}/photos",
+                    data=photo_data
+                )
+            else:
+                # Post text/link
+                response = await client.post(
+                    f"{self.base_url}/{page_id}/feed",
+                    data=post_data
+                )
+            
+            if response.status_code != 200:
+                raise Exception(f"Facebook posting error: {response.text}")
+            
+            return response.json()
+    
+    async def schedule_post(self, page_id: str, page_access_token: str, message: str, 
+                           scheduled_publish_time: int, link: str = None, 
+                           image_url: str = None) -> Dict[str, Any]:
+        """Schedule a post to Facebook page"""
+        post_data = {
+            "message": message,
+            "published": "false",  # Unpublished initially
+            "scheduled_publish_time": scheduled_publish_time,  # Unix timestamp
+            "access_token": page_access_token
+        }
+        
+        if link:
+            post_data["link"] = link
+        
+        async with httpx.AsyncClient() as client:
+            if image_url:
+                # Schedule photo post
+                photo_data = {
+                    "url": image_url,
+                    "message": message,
+                    "published": "false",
+                    "scheduled_publish_time": scheduled_publish_time,
+                    "access_token": page_access_token
+                }
+                response = await client.post(
+                    f"{self.base_url}/{page_id}/photos",
+                    data=photo_data
+                )
+            else:
+                # Schedule text/link post
+                response = await client.post(
+                    f"{self.base_url}/{page_id}/feed",
+                    data=post_data
+                )
+            
+            if response.status_code != 200:
+                raise Exception(f"Facebook scheduling error: {response.text}")
+            
+            return response.json()
+    
+    async def get_page_posts(self, page_id: str, page_access_token: str, 
+                            limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent posts from a Facebook page"""
+        fields = "id,message,created_time,likes.summary(true),comments.summary(true),shares"
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/{page_id}/posts",
+                params={
+                    "fields": fields,
+                    "limit": limit,
+                    "access_token": page_access_token
+                }
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f"Facebook API error getting posts: {response.text}")
+            
+            data = response.json()
+            return data.get("data", [])
+    
+    async def delete_post(self, post_id: str, page_access_token: str) -> bool:
+        """Delete a Facebook page post"""
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"{self.base_url}/{post_id}",
+                params={"access_token": page_access_token}
+            )
+            
+            return response.status_code == 200

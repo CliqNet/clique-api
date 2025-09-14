@@ -73,8 +73,18 @@ async def get_current_user(
             algorithms=[settings.ALGORITHM],
         )
         user_id: str = payload.get("sub")
-        if user_id is None:
+        jti: str = payload.get("jti")
+
+        if user_id is None or jti is None:
             raise credentials_exception
+
+        # Check if token is blacklisted
+        blacklisted_token = await prisma.tokenblacklist.find_unique(
+            where={"tokenJti": jti}
+        )
+        if blacklisted_token:
+            raise credentials_exception
+
     except jwt.PyJWTError:
         raise credentials_exception
 

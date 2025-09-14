@@ -553,12 +553,8 @@ class SocialPlatformConnector:
                 else:
                     await client.post(revoke_urls[account.platform])
 
-    def _generate_pkce_challenge(self) -> str:
+    def _generate_pkce_challenge(self, code_verifier: str) -> str:
         """Generate PKCE challenge for Twitter OAuth"""
-        if not code_verifier:
-            code_verifier = secrets.token_urlsafe(32)
-
-        code_verifier = secrets.token_urlsafe(32)
         code_challenge = hashlib.sha256(code_verifier.encode()).digest()
         return code_challenge.hex()
 

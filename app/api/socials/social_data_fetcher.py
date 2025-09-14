@@ -2,9 +2,8 @@
 
 import httpx
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 from prisma import Prisma
-from enum import Enum
 
 
 class SocialDataFetcher:

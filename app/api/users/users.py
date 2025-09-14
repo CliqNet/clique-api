@@ -1,5 +1,5 @@
 # app/api/users/user.py
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.security import HTTPBearer
 from prisma.enums import UserType, AdminRole
 

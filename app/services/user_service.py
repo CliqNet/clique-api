@@ -1,6 +1,6 @@
 # app/services/user_service.py
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Dict, Any
 from fastapi import HTTPException, status
 from prisma.enums import UserType, AccountStatus, AdminRole, PlanType
 

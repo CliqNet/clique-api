@@ -153,6 +153,10 @@ model SocialAccount {
   errorCount      Int @default(0) // Track API errors
   lastError       String?       // Last error message
 
+  // Facebook-specific tokens
+  pageAccessToken String?       // For posting to Facebook pages
+  userAccessToken String?       // Facebook user token (fallback)
+
   // User profile data
   displayName     String?
   avatar          String?

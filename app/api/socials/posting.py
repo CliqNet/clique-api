@@ -4,10 +4,22 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 from .social_platform_connector import SocialPlatformConnector, ConnectionStatus
+from app.api.auth.auth import get_current_user
+from app.models.user import User
+from app.lib.prisma import prisma, Prisma
 
 router = APIRouter()
+
+# Import dependency functions from social_auth_routes to avoid duplication
+from .social_auth_routes import get_database, get_connector
+
+class PostRequest(BaseModel):
+    account_id: str
+    message: str
+    media_urls: Optional[List[str]] = None
+    schedule_time: Optional[datetime] = None
 
 class PostContent(BaseModel):
     text: str
@@ -80,7 +92,16 @@ class SocialMediaPoster:
         """Check if access token is expired"""
         if not account.expiresAt:
             return False
-        return datetime.utcnow() >= account.expiresAt
+
+        # Use timezone-aware datetime for comparison
+        now = datetime.now(timezone.utc)
+        expires_at = account.expiresAt
+
+        # If expiresAt is naive, make it aware
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        return now >= expires_at
     
     async def _post_to_platform(self, account, content: PostContent) -> Dict[str, Any]:
         """Post content to specific platform"""
@@ -144,25 +165,104 @@ class SocialMediaPoster:
             return {"post_id": publish_response.json()["id"], "platform": "INSTAGRAM"}
     
     async def _post_to_facebook(self, account, content: PostContent) -> Dict[str, Any]:
-        """Post to Facebook Page"""
-        post_data = {
-            "message": content.text,
-            "access_token": account.accessToken
-        }
-        
-        if content.media_urls:
-            post_data["link"] = content.media_urls[0]
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"https://graph.facebook.com/v18.0/{account.platformId}/posts",
-                data=post_data
+        """Post to Facebook Page using FacebookDataFetcher"""
+        print(f"DEBUG: Posting to Facebook page {account.platformId}")
+        print(f"DEBUG: Message: {content.text}")
+        print(f"DEBUG: Account type: {account.accountType}")
+
+        # Use the existing FacebookDataFetcher for proper page posting
+        from .facebook_data_fetcher import FacebookDataFetcher
+
+        fb_fetcher = FacebookDataFetcher(self.connector.db)
+
+        try:
+            # Try to use stored page access token first
+            page_access_token = getattr(account, 'pageAccessToken', None)
+            user_access_token = getattr(account, 'userAccessToken', None) or account.accessToken
+
+            print(f"DEBUG: Page access token available: {bool(page_access_token)}")
+            print(f"DEBUG: User access token: {user_access_token[:20] if user_access_token else 'None'}...")
+
+            # If no stored page access token, fetch it from user token
+            if not page_access_token:
+                try:
+                    print("DEBUG: Attempting to fetch page access token from user token...")
+                    pages = await fb_fetcher.get_user_pages(user_access_token)
+
+                    print(f"DEBUG: Number of pages returned: {len(pages)}")
+                    print(f"DEBUG: Looking for page ID: {account.platformId}")
+
+                    # Find the page we want to post to
+                    target_page = None
+                    for i, page in enumerate(pages):
+                        print(f"DEBUG: Page {i}: ID={page.get('id')}, Name={page.get('name')}, has_token={bool(page.get('access_token'))}")
+                        if page.get("id") == account.platformId:
+                            target_page = page
+                            break
+
+                    # If exact match not found, try to use the first page with an access token
+                    if not target_page and pages:
+                        print(f"DEBUG: Exact page ID match not found, trying first available page")
+                        for page in pages:
+                            if page.get("access_token"):
+                                target_page = page
+                                print(f"DEBUG: Using alternative page: ID={page.get('id')}, Name={page.get('name')}")
+
+                                # Update the stored platform ID to match the actual page
+                                await self.connector.db.socialaccount.update(
+                                    where={"id": account.id},
+                                    data={"platformId": page.get('id'), "username": page.get('name')}
+                                )
+                                print(f"DEBUG: Updated stored platform ID to {page.get('id')}")
+                                break
+
+                    if target_page and "access_token" in target_page:
+                        page_access_token = target_page["access_token"]
+                        print(f"DEBUG: Found page access token: {page_access_token[:20]}...")
+
+                        # Store the page access token for future use
+                        await self.connector.db.socialaccount.update(
+                            where={"id": account.id},
+                            data={"pageAccessToken": page_access_token}
+                        )
+                        print("DEBUG: Stored page access token for future use")
+                    else:
+                        print(f"DEBUG: Could not find page access token. Target page found: {target_page is not None}")
+                        if target_page:
+                            print(f"DEBUG: Target page keys: {list(target_page.keys())}")
+                        available_pages = [f"ID={p.get('id')}, Name={p.get('name')}" for p in pages]
+                        raise Exception(f"No page access token available. Available pages: {available_pages}")
+
+                except Exception as token_error:
+                    print(f"DEBUG: Failed to fetch page token: {token_error}")
+                    raise Exception(f"Failed to get page access token: {token_error}")
+
+            # Ensure we have a page access token
+            if not page_access_token:
+                raise Exception(f"No page access token available for Facebook page {account.platformId}")
+
+            print(f"DEBUG: Using page access token: {page_access_token[:20]}...")
+
+            # Get the current platform ID (in case it was updated)
+            current_account = await self.connector.db.socialaccount.find_unique(
+                where={"id": account.id}
             )
-            
-            if response.status_code != 200:
-                raise Exception(f"Facebook post failed: {response.text}")
-            
-            return {"post_id": response.json()["id"], "platform": "FACEBOOK"}
+            current_platform_id = current_account.platformId if current_account else account.platformId
+
+            # Use page access token and proper posting method
+            result = await fb_fetcher.post_to_page(
+                page_id=current_platform_id,
+                page_access_token=page_access_token,
+                message=content.text,
+                link=content.media_urls[0] if content.media_urls else None
+            )
+
+            print(f"DEBUG: Facebook post successful! Result: {result}")
+            return {"post_id": result.get("id"), "platform": "FACEBOOK", "response": result}
+
+        except Exception as e:
+            print(f"DEBUG: Facebook posting failed: {str(e)}")
+            raise Exception(f"Facebook post failed: {str(e)}")
     
     async def _post_to_twitter(self, account, content: PostContent) -> Dict[str, Any]:
         """Post to Twitter/X"""
@@ -236,20 +336,73 @@ class SocialMediaPoster:
         raise NotImplementedError("YouTube posting implementation depends on content type")
 
 # FastAPI Routes
-@router.post("/post", response_model=PostResponse)
-async def create_social_post(
+@router.post("/post")
+async def create_social_post_by_account(
+    post_request: PostRequest,
+    current_user: User = Depends(get_current_user),
+    connector: SocialPlatformConnector = Depends(get_connector)
+):
+    """Create a post to a specific social account"""
+    try:
+        # Get the social account
+        account = await connector.db.socialaccount.find_unique(
+            where={"id": post_request.account_id}
+        )
+
+        if not account:
+            raise HTTPException(status_code=404, detail="Social account not found")
+
+        # Verify account belongs to current user
+        if account.userId != current_user.id:
+            raise HTTPException(status_code=403, detail="Unauthorized access to account")
+
+        # Check if account is connected
+        if account.status != ConnectionStatus.CONNECTED.value:
+            raise HTTPException(status_code=400, detail="Account is not connected")
+
+        # Create poster and post
+        poster = SocialMediaPoster(connector)
+
+        # Convert to PostContent format for existing posting logic
+        content = PostContent(
+            text=post_request.message,
+            platforms=[account.platform],
+            media_urls=post_request.media_urls,
+            schedule_time=post_request.schedule_time
+        )
+
+        result = await poster.post_to_platforms(current_user.id, content)
+
+        print(f"DEBUG: Posting result: {result.success}")
+        print(f"DEBUG: Results: {result.results}")
+        print(f"DEBUG: Failed platforms: {result.failed_platforms}")
+
+        return {
+            "success": result.success,
+            "message": "Post created successfully" if result.success else "Post failed",
+            "results": result.results,
+            "failed_platforms": result.failed_platforms
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create post: {str(e)}")
+
+@router.post("/post/multi", response_model=PostResponse)
+async def create_multi_platform_post(
     content: PostContent,
-    user_id: str,  # This would come from authentication middleware
-    connector: SocialPlatformConnector = Depends()  # Dependency injection
+    current_user: User = Depends(get_current_user),
+    connector: SocialPlatformConnector = Depends(get_connector)
 ):
     """Create a post across multiple social platforms"""
     poster = SocialMediaPoster(connector)
-    return await poster.post_to_platforms(user_id, content)
+    return await poster.post_to_platforms(current_user.id, content)
 
 @router.get("/accounts/{user_id}")
 async def get_connected_accounts(
     user_id: str,
-    connector: SocialPlatformConnector = Depends()
+    connector: SocialPlatformConnector = Depends(get_connector)
 ):
     """Get user's connected social accounts"""
     return await connector.get_user_accounts(user_id)

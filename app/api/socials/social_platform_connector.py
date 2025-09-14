@@ -312,7 +312,56 @@ class SocialPlatformConnector:
             data = response.json()
 
             # Normalize response format
-            if platform == SocialPlatform.YOUTUBE:
+            if platform == SocialPlatform.FACEBOOK:
+                # For Facebook, try to get page information with page access tokens
+                try:
+                    from .facebook_data_fetcher import FacebookDataFetcher
+                    fb_fetcher = FacebookDataFetcher(self.db)
+                    pages = await fb_fetcher.get_user_pages(access_token)
+
+                    if pages and len(pages) > 0:
+                        # Use the first page that has an access token
+                        for page in pages:
+                            if "access_token" in page:
+                                return {
+                                    "platform_id": page["id"],
+                                    "username": page["name"],
+                                    "account_type": "page",
+                                    "page_access_token": page["access_token"],
+                                    "user_access_token": access_token,
+                                    "followers": page.get("fan_count", 0),
+                                }
+
+                        # If no page has access token, use the first page with user token
+                        first_page = pages[0]
+                        return {
+                            "platform_id": first_page["id"],
+                            "username": first_page["name"],
+                            "account_type": "page",
+                            "page_access_token": None,  # Will need to fetch during posting
+                            "user_access_token": access_token,
+                            "followers": first_page.get("fan_count", 0),
+                        }
+                    else:
+                        # No pages, use user account
+                        return {
+                            "platform_id": data.get("id"),
+                            "username": data.get("name"),
+                            "account_type": "user",
+                            "user_access_token": access_token,
+                            "followers": 0,
+                        }
+                except Exception as e:
+                    print(f"DEBUG: Failed to fetch Facebook page info during OAuth: {e}")
+                    # Fallback to user account
+                    return {
+                        "platform_id": data.get("id"),
+                        "username": data.get("name"),
+                        "account_type": "user",
+                        "user_access_token": access_token,
+                        "followers": 0,
+                    }
+            elif platform == SocialPlatform.YOUTUBE:
                 if "items" in data and data["items"]:
                     item = data["items"][0]
                     return {
@@ -380,6 +429,20 @@ class SocialPlatformConnector:
             "errorCount": 0,
             "lastError": None,
         }
+
+        # Handle Facebook-specific fields
+        if platform == SocialPlatform.FACEBOOK:
+            # Store page access token if available
+            if user_info.get("page_access_token"):
+                account_data["pageAccessToken"] = user_info["page_access_token"]
+
+            # Store user access token separately for Facebook pages
+            if user_info.get("user_access_token"):
+                account_data["userAccessToken"] = user_info["user_access_token"]
+
+            # Set initial follower count if available
+            if user_info.get("followers"):
+                account_data["followers"] = user_info["followers"]
 
         if existing_account:
             result = await self.db.socialaccount.update(

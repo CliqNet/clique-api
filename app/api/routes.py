@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.api.auth.auth import router as auth_router
 from app.api.users.users import router as users_router
 from app.api.socials.social_auth_routes import router as socials_router
+from app.api.socials.posting import router as posting_router
 from app.api.creators.creators_routes import router as creators_router
 from app.api.websocket.websocket_routes import router as ws_router
 from app.background_tasks.background_tasks import task_manager
@@ -19,6 +20,7 @@ router = APIRouter()
 router.include_router(auth_router)
 router.include_router(users_router)
 router.include_router(socials_router)
+router.include_router(posting_router, prefix="/social")
 router.include_router(creators_router)
 router.include_router(ws_router)
 

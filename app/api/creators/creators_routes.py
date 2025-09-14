@@ -102,7 +102,7 @@ async def search_creators(
             include={
                 "user": True
             },
-            order_by={"totalFollowers": "desc"},
+            order={"totalFollowers": "desc"},
             skip=skip,
             take=limit
         )
@@ -234,7 +234,7 @@ async def get_featured_creators(
                 "userId": {"not": current_user.id}
             },
             include={"user": True},
-            order_by={"totalFollowers": "desc"},
+            order={"totalFollowers": "desc"},
             take=limit
         )
 

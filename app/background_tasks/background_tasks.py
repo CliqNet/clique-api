@@ -1,7 +1,7 @@
 # File: background_tasks.py
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ..services.notification_service import notification_service
 from ..api.socials.social_auth_routes import get_database, get_connector
 import logging
@@ -47,8 +47,8 @@ class BackgroundTaskManager:
                         where={
                             "isActive": True,
                             "expiresAt": {
-                                "gte": datetime.utcnow(),
-                                "lte": datetime.utcnow() + timedelta(hours=1),
+                                "gte": datetime.now(timezone.utc),
+                                "lte": datetime.now(timezone.utc) + timedelta(hours=1),
                             },
                             "refreshToken": {"not": None},
                         }
@@ -105,7 +105,7 @@ class BackgroundTaskManager:
             try:
                 async for db in get_database():
                     # Clean up old webhooks (older than 7 days)
-                    cutoff_date = datetime.utcnow() - timedelta(days=7)
+                    cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
                     await db.webhook.delete_many(
                         where={"processed": True, "createdAt": {"lt": cutoff_date}}
                     )

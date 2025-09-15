@@ -590,12 +590,12 @@ async def refresh_expired_tokens(
     """Admin endpoint to refresh all expired tokens"""
     try:
         # Find accounts with expired tokens
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         expired_accounts = await db.socialaccount.find_many(
             where={
                 "isActive": True,
-                "expiresAt": {"lt": datetime.utcnow()},
+                "expiresAt": {"lt": datetime.now(timezone.utc)},
                 "refreshToken": {"not": None},
             }
         )

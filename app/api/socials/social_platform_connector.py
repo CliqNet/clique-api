@@ -2,7 +2,7 @@
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 from urllib.parse import urlencode
 import httpx
@@ -400,7 +400,7 @@ class SocialPlatformConnector:
         # Calculate token expiry
         expires_at = None
         if "expires_in" in token_data:
-            expires_at = datetime.utcnow() + timedelta(
+            expires_at = datetime.now(timezone.utc) + timedelta(
                 seconds=int(token_data["expires_in"])
             )
 
@@ -423,9 +423,9 @@ class SocialPlatformConnector:
             "scope": token_data.get("scope"),
             "expiresAt": expires_at,
             "status": ConnectionStatus.CONNECTED.value,
-            "statusUpdatedAt": datetime.utcnow(),
+            "statusUpdatedAt": datetime.now(timezone.utc),
             "isActive": True,
-            "lastRefreshed": datetime.utcnow(),
+            "lastRefreshed": datetime.now(timezone.utc),
             "errorCount": 0,
             "lastError": None,
         }
@@ -486,7 +486,7 @@ class SocialPlatformConnector:
                     token_data = response.json()
                     expires_at = None
                     if "expires_in" in token_data:
-                        expires_at = datetime.utcnow() + timedelta(
+                        expires_at = datetime.now(timezone.utc) + timedelta(
                             seconds=int(token_data["expires_in"])
                         )
 
@@ -498,7 +498,7 @@ class SocialPlatformConnector:
                                 "refresh_token", account.refreshToken
                             ),
                             "expiresAt": expires_at,
-                            "lastRefreshed": datetime.utcnow(),
+                            "lastRefreshed": datetime.now(timezone.utc),
                             "status": ConnectionStatus.CONNECTED.value,
                             "refreshAttempts": 0,
                             "errorCount": 0,
@@ -526,7 +526,7 @@ class SocialPlatformConnector:
                     if not error
                     else ConnectionStatus.PLATFORM_ERROR.value
                 ),
-                "statusUpdatedAt": datetime.utcnow(),
+                "statusUpdatedAt": datetime.now(timezone.utc),
             },
         )
 
@@ -540,26 +540,38 @@ class SocialPlatformConnector:
         hourly_limit = config.get("rate_limit_hour", 100)
         # daily_limit = config.get("rate_limit_day", 1000)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Check hourly limit
-        if account.lastApiCall and (now - account.lastApiCall).seconds < 3600:
-            if account.dailyApiCalls >= hourly_limit:
-                await self.db.socialaccount.update(
-                    where={"id": account_id},
-                    data={
-                        "status": ConnectionStatus.RATE_LIMITED.value,
-                        "statusUpdatedAt": now,
-                    },
-                )
-                return False
+        if account.lastApiCall:
+            # Ensure lastApiCall is timezone-aware
+            last_call = account.lastApiCall
+            if last_call.tzinfo is None:
+                last_call = last_call.replace(tzinfo=timezone.utc)
+
+            if (now - last_call).total_seconds() < 3600:
+                if account.dailyApiCalls >= hourly_limit:
+                    await self.db.socialaccount.update(
+                        where={"id": account_id},
+                        data={
+                            "status": ConnectionStatus.RATE_LIMITED.value,
+                            "statusUpdatedAt": now,
+                        },
+                    )
+                    return False
 
         # Reset daily counter if needed
-        if account.quotaResetAt and now >= account.quotaResetAt:
-            await self.db.socialaccount.update(
-                where={"id": account_id},
-                data={"dailyApiCalls": 0, "quotaResetAt": now + timedelta(days=1)},
-            )
+        if account.quotaResetAt:
+            # Ensure quotaResetAt is timezone-aware
+            quota_reset = account.quotaResetAt
+            if quota_reset.tzinfo is None:
+                quota_reset = quota_reset.replace(tzinfo=timezone.utc)
+
+            if now >= quota_reset:
+                await self.db.socialaccount.update(
+                    where={"id": account_id},
+                    data={"dailyApiCalls": 0, "quotaResetAt": now + timedelta(days=1)},
+                )
 
         return True
 
@@ -567,7 +579,7 @@ class SocialPlatformConnector:
         """Record an API call for rate limiting"""
         await self.db.socialaccount.update(
             where={"id": account_id},
-            data={"dailyApiCalls": {"increment": 1}, "lastApiCall": datetime.utcnow()},
+            data={"dailyApiCalls": {"increment": 1}, "lastApiCall": datetime.now(timezone.utc)},
         )
 
     async def disconnect_account(self, account_id: str, user_id: str) -> bool:
@@ -589,7 +601,7 @@ class SocialPlatformConnector:
             data={
                 "isActive": False,
                 "status": ConnectionStatus.PERMISSION_REVOKED.value,
-                "statusUpdatedAt": datetime.utcnow(),
+                "statusUpdatedAt": datetime.now(timezone.utc),
             },
         )
 
